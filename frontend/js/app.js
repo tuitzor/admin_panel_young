@@ -1,4 +1,4 @@
-﻿const API = 'https://your-render-backend.onrender.com/api';
+const API = 'https://admin-panel-young.onrender.com/api';
 const token = localStorage.getItem('token');
 if (!token) window.location.href = 'login.html';
 
@@ -39,5 +39,6 @@ async function deleteUser(id) {
 async function exportToExcel() {
   window.location.href = `${API}/users/export`;
 }
+
 
 loadUsers();
