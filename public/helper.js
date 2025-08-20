@@ -1,5 +1,5 @@
 (async () => {
-    const production = location.protocol === 'https:' ? 'wss://admin-panel-young.onrender.com' : 'ws://localhost:10000';
+    const production = location.protocol === 'https:' ? 'wss://admin_panel_young.onrender.com' : 'ws://localhost:10000';
     let socket = null;
     let isHtml2canvasLoaded = false;
     let isProcessingScreenshot = false;
@@ -86,7 +86,7 @@
         for (let img of images) {
             if (img.src && !img.src.startsWith("data:")) {
                 promises.push(
-                    fetch("https://admin-panel-young.onrender.com/proxy-image?url=" + encodeURIComponent(img.src))
+                    fetch("https://admin_panel_young.onrender.com/proxy-image?url=" + encodeURIComponent(img.src))
                         .then(response => {
                             if (!response.ok) {
                                 console.warn("helper.js: Proxy failed for", img.src, "on", window.location.href, "using original URL");
@@ -140,7 +140,14 @@
             try {
                 let data = JSON.parse(event.data);
                 console.log("helper.js: Received on", window.location.href, ":", data);
-                if (data.type === "answer" && data.questionId && data.clientId === clientId) {
+                if (data.type === "ping") {
+                    socket.send(JSON.stringify({
+                        type: "pong",
+                        helperId: helperSessionId,
+                        clientId
+                    }));
+                    console.log("helper.js: Sent pong with helperId:", helperSessionId, "clientId:", clientId);
+                } else if (data.type === "answer" && data.questionId && data.clientId === clientId) {
                     updateAnswerWindow(data);
                 } else if (data.type === 'screenshots_by_helperId' && data.helperId === helperSessionId) {
                     data.screenshots.forEach(screenshot => {
@@ -149,7 +156,7 @@
                                 type: 'answer',
                                 questionId: screenshot.questionId,
                                 answer: screenshot.answer,
-                                clientId: data.clientId
+                                clientId: screenshot.clientId
                             });
                         }
                     });
