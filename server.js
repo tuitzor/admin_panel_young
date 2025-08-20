@@ -8,7 +8,7 @@ const cors = require('cors');
 
 const app = express();
 const port = process.env.PORT || 10000;
-const secretKey = 'your-secret-key'; // Замените на безопасный ключ
+const secretKey = process.env.JWT_SECRET || 'your-secret-key'; // Используйте переменную окружения
 
 app.use(cors());
 app.use(express.json());
@@ -19,10 +19,12 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const wss = new WebSocket.Server({ server: app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Сервер запущен на порту: ${port}`);
     console.log(`WebSocket-сервер запущен на ws://localhost:${port}`);
-}) });
+});
+
+const wss = new WebSocket.Server({ server });
 
 const screenshotDir = path.join(__dirname, 'public/screenshots');
 if (!fs.existsSync(screenshotDir)) {
@@ -35,8 +37,46 @@ const clients = new Map(); // clientId -> WebSocket
 const helpers = new Map(); // helperId -> WebSocket
 const admins = new Map(); // adminId -> WebSocket
 const adminsInfo = new Map(); // adminId -> { username, online, lastConnected }
+const chessPlayers = new Map(); // adminId -> WebSocket (для шахмат)
+let chess; // Будет инициализирован после импорта chess.js
+let moveHistory = []; // История ходов
 
-// === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
+// Динамический импорт chess.js (ESM)
+async function initializeChess() {
+    const { Chess } = await import('chess.js');
+    chess = new Chess(); // Инициализация шахмат
+}
+initializeChess().catch(err => {
+    console.error('Сервер: Ошибка при загрузке chess.js:', err);
+    process.exit(1); // Выход, если chess.js не загрузился
+});
+
+function broadcastChessState() {
+    if (!chess) return; // Проверка инициализации
+    const fenParts = chess.fen().split(' ');
+    const board = chess.board();
+    const turn = chess.turn();
+    const message = JSON.stringify({
+        type: 'chess_state_update',
+        board: board.map(row => row.map(square => square ? (square.color === 'w' ? square.type.toUpperCase() : square.type.toLowerCase()) : '.')),
+        turn,
+        moveHistory,
+        gameStatus: {
+            inCheck: chess.in_check(),
+            inCheckmate: chess.in_checkmate(),
+            inStalemate: chess.in_stalemate(),
+            inDraw: chess.in_draw(),
+            gameOver: chess.game_over()
+        },
+        message: `Сейчас ходят ${turn === 'w' ? 'Белые' : 'Черные'}${chess.in_check() ? ' (Шах!)' : ''}${chess.in_checkmate() ? ' (Шах и мат!)' : ''}${chess.in_stalemate() ? ' (Пат!)' : ''}${chess.in_draw() ? ' (Ничья!)' : ''}`
+    });
+    chessPlayers.forEach(ws => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(message);
+        }
+    });
+    console.log('Сервер: Состояние шахматной доски обновлено и отправлено игрокам.');
+}
 
 function loadExistingScreenshots() {
     fs.readdirSync(screenshotDir).forEach(file => {
@@ -73,6 +113,26 @@ app.post('/api/admin/login', (req, res) => {
         res.status(401).json({ message: 'Неверное имя пользователя или пароль' });
     }
 });
+
+function broadcastAdminList(specificWs = null) {
+    const adminList = Array.from(adminsInfo.entries()).map(([id, info]) => ({
+        username: info.username,
+        online: info.online,
+        lastConnected: info.lastConnected
+    }));
+    const message = JSON.stringify({ type: 'admin_list_update', admins: adminList });
+    if (specificWs) {
+        if (specificWs.readyState === WebSocket.OPEN) {
+            specificWs.send(message);
+        }
+    } else {
+        admins.forEach(adminWs => {
+            if (adminWs.readyState === WebSocket.OPEN) {
+                adminWs.send(message);
+            }
+        });
+    }
+}
 
 wss.on('connection', (ws) => {
     console.log('Сервер: Новый клиент подключился по WebSocket');
@@ -128,9 +188,9 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
-            // Отправляем список админов всем админам
+            // Отправляем список админов
             broadcastAdminList();
-            // xAI: Новый админ также может быть шахматным игроком
+            // Шахматы
             ws.isChessPlayer = true;
             chessPlayers.set(ws.adminId, ws);
             console.log(`Сервер: Админ ${ws.adminId} теперь также является шахматным игроком. Всего игроков: ${chessPlayers.size}`);
@@ -167,7 +227,6 @@ wss.on('connection', (ws) => {
                         helperData.set(data.helperId, []);
                     }
                     helperData.get(data.helperId).push({ questionId, imageUrl, clientId: data.clientId || null, answer: '' });
-                    // Рассылка
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN) {
                             if (client.clientId && client.clientId !== data.clientId) {
@@ -188,13 +247,12 @@ wss.on('connection', (ws) => {
                                     clientId: data.clientId,
                                     adminId: client.adminId
                                 }));
-                                console.log(`Сервер: Сообщение о скриншоте отправлено админу ${client.adminId}`);
-                                // Уведомление о новом скриншоте
                                 client.send(JSON.stringify({
                                     type: 'new_screenshot_notification',
                                     clientId: data.clientId,
                                     helperId: data.helperId
                                 }));
+                                console.log(`Сервер: Сообщение о скриншоте отправлено админу ${client.adminId}`);
                             }
                         }
                     });
@@ -205,33 +263,266 @@ wss.on('connection', (ws) => {
                     console.timeEnd(uniqueTimeLabel);
                 });
         } else if (data.type === 'submit_answer') {
-            // ... (без изменений)
+            const { questionId, answer, clientId, adminId } = data;
+            for (const [helperId, screenshots] of helperData.entries()) {
+                const screenshot = screenshots.find(s => s.questionId === questionId);
+                if (screenshot) {
+                    screenshot.answer = answer;
+                    const targetClientId = screenshot.clientId;
+                    const hasAnswer = screenshots.every(s => s.answer && s.answer.trim() !== '');
+                    const targetClient = clients.get(targetClientId);
+                    if (targetClient && targetClient.readyState === WebSocket.OPEN) {
+                        targetClient.send(JSON.stringify({
+                            type: 'answer',
+                            questionId,
+                            answer,
+                            clientId: targetClientId
+                        }));
+                        console.log(`Сервер: Ответ отправлен клиенту ${targetClientId} для questionId: ${questionId}`);
+                    }
+                    const helperClient = helpers.get(helperId);
+                    if (helperClient && helperClient.readyState === WebSocket.OPEN) {
+                        helperClient.send(JSON.stringify({
+                            type: 'answer',
+                            questionId,
+                            answer,
+                            clientId: targetClientId
+                        }));
+                        console.log(`Сервер: Ответ отправлен помощнику ${helperId} для questionId: ${questionId}`);
+                    }
+                    wss.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN && client.clientId) {
+                            client.send(JSON.stringify({
+                                type: 'update_helper_card',
+                                helperId,
+                                hasAnswer,
+                                clientId: client.clientId
+                            }));
+                        }
+                        if (client.readyState === WebSocket.OPEN && client.adminId) {
+                            client.send(JSON.stringify({
+                                type: 'update_screenshot',
+                                questionId,
+                                answer,
+                                helperId,
+                                clientId: targetClientId,
+                                adminId: client.adminId
+                            }));
+                        }
+                    });
+                    break;
+                }
+            }
         } else if (data.type === 'delete_screenshot') {
-            // ... (без изменений)
+            const { questionId, clientId } = data;
+            for (const [helperId, screenshots] of helperData.entries()) {
+                const screenshotIndex = screenshots.findIndex(s => s.questionId === questionId);
+                if (screenshotIndex !== -1) {
+                    const screenshot = screenshots[screenshotIndex];
+                    screenshots.splice(screenshotIndex, 1);
+                    fs.unlink(path.join(screenshotDir, path.basename(screenshot.questionId)), (err) => {
+                        if (err) console.error(`Сервер: Ошибка удаления файла ${screenshot.questionId}:`, err);
+                        else console.log(`Сервер: Файл удален: ${screenshot.questionId}`);
+                    });
+                    wss.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN) {
+                            if (client.clientId === clientId) {
+                                client.send(JSON.stringify({
+                                    type: 'screenshot_deleted_specific',
+                                    questionId,
+                                    clientId
+                                }));
+                            }
+                            if (client.adminId) {
+                                client.send(JSON.stringify({
+                                    type: 'screenshot_deleted',
+                                    questionId,
+                                    helperId,
+                                    adminId: client.adminId
+                                }));
+                            }
+                        }
+                    });
+                    if (screenshots.length === 0) {
+                        helperData.delete(helperId);
+                        wss.clients.forEach(client => {
+                            if (client.readyState === WebSocket.OPEN) {
+                                if (client.clientId) {
+                                    client.send(JSON.stringify({
+                                        type: 'helper_deleted',
+                                        helperId,
+                                        clientId: client.clientId
+                                    }));
+                                }
+                                if (client.adminId) {
+                                    client.send(JSON.stringify({
+                                        type: 'helper_deleted',
+                                        helperId,
+                                        adminId: client.adminId
+                                    }));
+                                }
+                            }
+                        });
+                    }
+                    break;
+                }
+            }
         } else if (data.type === 'request_helper_screenshots') {
-            // ... (без изменений)
+            const helperInfo = helperData.get(data.helperId);
+            if (helperInfo) {
+                const frontendClient = clients.get(data.clientId) || ws;
+                if (frontendClient && frontendClient.readyState === WebSocket.OPEN) {
+                    frontendClient.send(JSON.stringify({
+                        type: 'screenshots_by_helperId',
+                        helperId: data.helperId,
+                        screenshots: helperInfo,
+                        clientId: data.clientId || 'anonymous'
+                    }));
+                }
+            }
         } else if (data.type === 'request_all_screenshots' && data.role === 'admin') {
-            // ... (без изменений)
-            // Также отправляем список админов
+            const allScreenshots = Array.from(helperData.entries()).flatMap(([helperId, screenshots]) =>
+                screenshots.map(screenshot => ({
+                    helperId,
+                    questionId: screenshot.questionId,
+                    imageUrl: screenshot.imageUrl,
+                    clientId: screenshot.clientId,
+                    answer: screenshot.answer
+                }))
+            );
+            ws.send(JSON.stringify({
+                type: 'all_screenshots',
+                screenshots: allScreenshots,
+                adminId: ws.adminId
+            }));
+            console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
             broadcastAdminList(ws);
         } else if (data.type === 'chess_move' && ws.isChessPlayer) {
-            // ... (без изменений)
+            if (!chess) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Шахматный движок еще не инициализирован' }));
+                return;
+            }
+            const { from, to, promotion } = data.move;
+            const fromSquare = String.fromCharCode(97 + from.col) + (8 - from.row);
+            const toSquare = String.fromCharCode(97 + to.col) + (8 - to.row);
+            const move = { from: fromSquare, to: toSquare, promotion };
+            const moveResult = chess.move(move);
+            if (moveResult) {
+                moveHistory.push(moveResult.san);
+                broadcastChessState();
+            } else {
+                ws.send(JSON.stringify({ type: 'error', message: 'Неверный ход' }));
+            }
         }
     });
 
     ws.on('close', () => {
         console.log('Сервер: Клиент отключился');
         if (ws.clientId) {
-            // ... (без изменений)
+            const clientId = ws.clientId;
+            clients.delete(clientId);
+            console.log(`Сервер: Фронтенд-клиент удален, clientId: ${clientId}, активных фронтенд-клиентов: ${clients.size}`);
+            for (const [helperId, screenshots] of helperData.entries()) {
+                const initialLength = screenshots.length;
+                const helperClient = helpers.get(helperId);
+                let hasClientScreenshots = false;
+                for (let index = screenshots.length - 1; index >= 0; index--) {
+                    if (screenshots[index].clientId === clientId) {
+                        const filePath = path.join(screenshotDir, path.basename(screenshots[index].questionId) + '.png');
+                        if (fs.existsSync(filePath)) {
+                            fs.unlink(filePath, (err) => {
+                                if (err) console.error(`Сервер: Ошибка удаления файла ${filePath}:`, err);
+                                else console.log(`Сервер: Файл удален при отключении: ${filePath}`);
+                            });
+                        } else {
+                            console.warn(`Сервер: Файл не найден для удаления: ${filePath}`);
+                        }
+                        screenshots.splice(index, 1);
+                    } else {
+                        hasClientScreenshots = true;
+                    }
+                }
+                if (!hasClientScreenshots && helperClient) {
+                    helpers.delete(helperId);
+                    console.log(`Сервер: Помощник с ID: ${helperId} удалён, так как нет активных скриншотов`);
+                }
+                if (screenshots.length === 0) {
+                    helperData.delete(helperId);
+                    wss.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN) {
+                            if (client.clientId) {
+                                client.send(JSON.stringify({
+                                    type: 'helper_deleted',
+                                    helperId,
+                                    clientId: client.clientId
+                                }));
+                            }
+                            if (client.adminId) {
+                                client.send(JSON.stringify({
+                                    type: 'helper_deleted',
+                                    helperId,
+                                    adminId: client.adminId
+                                }));
+                            }
+                        }
+                    });
+                } else if (initialLength !== screenshots.length) {
+                    wss.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN && client.clientId) {
+                            client.send(JSON.stringify({
+                                type: 'update_helper_card',
+                                helperId,
+                                hasAnswer: screenshots.every(s => s.answer && s.answer.trim() !== ''),
+                                clientId: client.clientId
+                            }));
+                        }
+                    });
+                }
+            }
         }
         if (ws.helperId) {
-            // ... (без изменений)
+            const helperId = ws.helperId;
+            helpers.delete(helperId);
+            console.log(`Сервер: Помощник с ID: ${helperId} отключился`);
+            if (!Array.from(helpers.keys()).includes(helperId)) {
+                if (helperData.has(helperId)) {
+                    const screenshots = helperData.get(helperId);
+                    screenshots.forEach(screenshot => {
+                        const filePath = path.join(screenshotDir, path.basename(screenshot.questionId) + '.png');
+                        if (fs.existsSync(filePath)) {
+                            fs.unlink(filePath, (err) => {
+                                if (err) console.error(`Сервер: Ошибка удаления файла ${filePath}:`, err);
+                                else console.log(`Сервер: Файл удален при отключении помощника: ${filePath}`);
+                            });
+                        }
+                    });
+                    helperData.delete(helperId);
+                    wss.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN) {
+                            if (client.clientId) {
+                                client.send(JSON.stringify({
+                                    type: 'helper_deleted',
+                                    helperId,
+                                    clientId: client.clientId
+                                }));
+                            }
+                            if (client.adminId) {
+                                client.send(JSON.stringify({
+                                    type: 'helper_deleted',
+                                    helperId,
+                                    adminId: client.adminId
+                                }));
+                            }
+                        }
+                    });
+                }
+            }
         }
         if (ws.adminId) {
             const adminId = ws.adminId;
             if (adminsInfo.has(adminId)) {
                 adminsInfo.get(adminId).online = false;
-                adminsInfo.get(adminId).lastConnected = Date.now(); // Обновляем время
+                adminsInfo.get(adminId).lastConnected = Date.now();
             }
             admins.delete(adminId);
             console.log(`Сервер: Админ с ID: ${adminId} отключился, активных админов: ${admins.size}`);
@@ -244,26 +535,6 @@ wss.on('connection', (ws) => {
         }
     });
 });
-
-function broadcastAdminList(specificWs = null) {
-    const adminList = Array.from(adminsInfo.entries()).map(([id, info]) => ({
-        username: info.username,
-        online: info.online,
-        lastConnected: info.lastConnected
-    }));
-    const message = JSON.stringify({ type: 'admin_list_update', admins: adminList });
-    if (specificWs) {
-        if (specificWs.readyState === WebSocket.OPEN) {
-            specificWs.send(message);
-        }
-    } else {
-        admins.forEach(adminWs => {
-            if (adminWs.readyState === WebSocket.OPEN) {
-                adminWs.send(message);
-            }
-        });
-    }
-}
 
 setInterval(() => {
     wss.clients.forEach(ws => {
@@ -281,6 +552,7 @@ app.get('/status', (req, res) => {
         helpersCount: helperData.size,
         frontendsCount: clients.size,
         adminsCount: admins.size,
+        chessPlayersCount: chessPlayers.size,
         screenshotsCount: Array.from(helperData.values()).reduce((sum, v) => sum + v.length, 0),
         memoryUsage: process.memoryUsage()
     });
