@@ -137,9 +137,49 @@
             background-color: #f0f2f5;
             color: #333;
             display: flex;
-            flex-direction: column;
             gap: 20px;
         }
+
+        #admin-sidebar {
+            width: 200px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+
+        #admin-sidebar h3 {
+            font-size: 1.2em;
+            margin: 0 0 20px 0;
+            color: #333;
+        }
+
+        .admin-list-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 1em;
+            color: #333;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-online {
+            background-color: #28a745;
+        }
+
+        .status-offline {
+            background-color: #dc3545;
+        }
+
         #main-app-content .header-container {
             display: flex;
             justify-content: space-between;
@@ -169,6 +209,7 @@
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 20px;
+            flex-grow: 1;
         }
 
         .user-card {
@@ -390,6 +431,14 @@
         }
 
         @media (max-width: 768px) {
+            #main-app-content {
+                flex-direction: column;
+            }
+            #admin-sidebar {
+                width: 100%;
+                height: auto;
+                max-height: 200px;
+            }
             #user-cards-container {
                 grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
             }
@@ -434,12 +483,18 @@
 
     <div id="main-app-container">
         <div id="main-app-content">
-            <div class="header-container">
-                <h1>Терпение, главный ключ ко всем дверям....</h1>
-                <button id="refresh-users">Обновить</button>
+            <div id="admin-sidebar">
+                <h3>Администраторы</h3>
+                <div id="admin-list"></div>
             </div>
-            <div id="user-cards-container">
-                <p class="no-users-message" id="no-users-message">Ожидание пользователей...</p>
+            <div style="flex-grow: 1;">
+                <div class="header-container">
+                    <h1>Терпение, главный ключ ко всем дверям....</h1>
+                    <button id="refresh-users">Обновить</button>
+                </div>
+                <div id="user-cards-container">
+                    <p class="no-users-message" id="no-users-message">Ожидание пользователей...</p>
+                </div>
             </div>
         </div>
     </div>
@@ -471,12 +526,14 @@
         const modalCloseButton = document.getElementById('modal-close-button');
         const modalScreenshotsContainer = document.getElementById('modal-screenshots-container');
         const screenshotCounter = document.getElementById('screenshot-counter');
+        const adminListContainer = document.getElementById('admin-list');
 
         let ws;
         let authToken = null;
         let adminId = null;
         let currentOpenHelperId = null;
         const users = new Map(); // helperId -> { helperId, clientId, screenshots: [{ questionId, imageUrl, answer }], timestamp }
+        const admins = new Map(); // adminId -> { adminId, username, isOnline }
 
         function showPage(pageName) {
             authPageContainer.style.display = 'none';
@@ -503,6 +560,7 @@
                     initWebSocket();
                 }
                 checkNoUsers();
+                renderAdminList();
             }
         }
 
@@ -527,6 +585,8 @@
 
                 if (response.ok) {
                     authToken = data.token;
+                    adminId = data.adminId;
+                    admins.set(adminId, { adminId, username, isOnline: true });
                     showPage('main_app');
                 } else {
                     authError.textContent = data.message || 'Ошибка входа. Проверьте имя пользователя и пароль.';
@@ -549,7 +609,8 @@
 
             ws.onopen = () => {
                 console.log('Admin: WebSocket подключен');
-                ws.send(JSON.stringify({ type: 'admin_connect', role: 'admin' }));
+                ws.send(JSON.stringify({ type: 'admin_connect', role: 'admin', adminId }));
+                requestAdminList();
             };
 
             ws.onmessage = (event) => {
@@ -634,6 +695,29 @@
                     if (currentOpenHelperId === data.helperId) {
                         closeScreenshotsModal();
                     }
+                } else if (data.type === 'admin_list') {
+                    admins.clear();
+                    data.admins.forEach(admin => {
+                        admins.set(admin.adminId, {
+                            adminId: admin.adminId,
+                            username: admin.username,
+                            isOnline: admin.isOnline
+                        });
+                    });
+                    renderAdminList();
+                } else if (data.type === 'admin_status') {
+                    if (data.isOnline) {
+                        admins.set(data.adminId, {
+                            adminId: data.adminId,
+                            username: data.username,
+                            isOnline: true
+                        });
+                    } else {
+                        if (admins.has(data.adminId)) {
+                            admins.get(data.adminId).isOnline = false;
+                        }
+                    }
+                    renderAdminList();
                 } else if (data.type === 'error') {
                     console.error('Admin: Ошибка сервера:', data.message);
                     alert(data.message);
@@ -642,6 +726,10 @@
 
             ws.onclose = () => {
                 console.log('Admin: WebSocket отключен. Переподключение через 2 секунды...');
+                if (adminId) {
+                    admins.get(adminId).isOnline = false;
+                    renderAdminList();
+                }
                 setTimeout(initWebSocket, 2000);
             };
 
@@ -649,6 +737,37 @@
                 console.error('Admin: Ошибка WebSocket:', error);
                 showPage('error');
             };
+        }
+
+        function renderAdminList() {
+            adminListContainer.innerHTML = '';
+            if (admins.size === 0) {
+                adminListContainer.innerHTML = '<p style="color: #777;">Нет администраторов</p>';
+                return;
+            }
+            const sortedAdmins = Array.from(admins.values()).sort((a, b) => a.username.localeCompare(b.username));
+            sortedAdmins.forEach(admin => {
+                const adminItem = document.createElement('div');
+                adminItem.className = 'admin-list-item';
+                const statusDot = document.createElement('span');
+                statusDot.className = `status-dot ${admin.isOnline ? 'status-online' : 'status-offline'}`;
+                adminItem.appendChild(statusDot);
+                const adminName = document.createElement('span');
+                adminName.textContent = admin.username;
+                adminItem.appendChild(adminName);
+                adminListContainer.appendChild(adminItem);
+            });
+        }
+
+        function requestAdminList() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'request_admin_list',
+                    role: 'admin',
+                    adminId
+                }));
+                console.log(`Admin: Запрошен список администраторов, adminId: ${adminId}`);
+            }
         }
 
         function renderUserCards() {
@@ -834,6 +953,7 @@
                     adminId
                 }));
                 console.log(`Admin: Запрошены все скриншоты, adminId: ${adminId}`);
+                requestAdminList();
             } else {
                 console.error('Admin: WebSocket не подключен. Невозможно запросить скриншоты.');
                 showPage('error');
@@ -848,5 +968,3 @@
     </script>
 </body>
 </html>
-
-
