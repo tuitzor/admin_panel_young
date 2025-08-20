@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
 const cors = require('cors');
+const Chess = require('chess.js').Chess; // Import chess.js for chess logic
 
 const app = express();
 const port = process.env.PORT || 10000;
@@ -19,10 +20,12 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const wss = new WebSocket.Server({ server: app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Сервер запущен на порту: ${port}`);
     console.log(`WebSocket-сервер запущен на ws://localhost:${port}`);
-}) });
+});
+
+const wss = new WebSocket.Server({ server });
 
 const screenshotDir = path.join(__dirname, 'public/screenshots');
 if (!fs.existsSync(screenshotDir)) {
@@ -31,32 +34,30 @@ if (!fs.existsSync(screenshotDir)) {
 }
 
 const helperData = new Map(); // helperId -> [screenshots]
-const clients = new Map();     // clientId -> WebSocket
-const helpers = new Map();     // helperId -> WebSocket
-const admins = new Map();      // adminId -> WebSocket
-
-// === НОВЫЙ КОД ДЛЯ ШАХМАТ ===
+const clients = new Map(); // clientId -> WebSocket
+const helpers = new Map(); // helperId -> WebSocket
+const admins = new Map(); // adminId -> WebSocket
 const chessPlayers = new Map(); // adminId -> WebSocket
-const chessState = {
-    board: [
-        ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
-        ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
-        ['.', '.', '.', '.', '.', '.', '.', '.'],
-        ['.', '.', '.', '.', '.', '.', '.', '.'],
-        ['.', '.', '.', '.', '.', '.', '.', '.'],
-        ['.', '.', '.', '.', '.', '.', '.', '.'],
-        ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
-        ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
-    ],
-    turn: 'w' // w for white, b for black
-};
+const chess = new Chess(); // Initialize chess.js instance
+let moveHistory = []; // Store move history
 
 function broadcastChessState() {
+    const fenParts = chess.fen().split(' ');
+    const board = chess.board();
+    const turn = chess.turn();
     const message = JSON.stringify({
         type: 'chess_state_update',
-        board: chessState.board,
-        turn: chessState.turn,
-        message: `Сейчас ходят ${chessState.turn === 'w' ? 'Белые' : 'Черные'}`
+        board: board.map(row => row.map(square => square ? (square.color === 'w' ? square.type.toUpperCase() : square.type.toLowerCase()) : '.')),
+        turn,
+        moveHistory,
+        gameStatus: {
+            inCheck: chess.in_check(),
+            inCheckmate: chess.in_checkmate(),
+            inStalemate: chess.in_stalemate(),
+            inDraw: chess.in_draw(),
+            gameOver: chess.game_over()
+        },
+        message: `Сейчас ходят ${turn === 'w' ? 'Белые' : 'Черные'}${chess.in_check() ? ' (Шах!)' : ''}${chess.in_checkmate() ? ' (Шах и мат!)' : ''}${chess.in_stalemate() ? ' (Пат!)' : ''}${chess.in_draw() ? ' (Ничья!)' : ''}`
     });
     chessPlayers.forEach(ws => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -65,37 +66,6 @@ function broadcastChessState() {
     });
     console.log('Сервер: Состояние шахматной доски обновлено и отправлено игрокам.');
 }
-
-function isValidChessMove(from, to, board) {
-    // Очень простая проверка хода, без учета правил шахмат (шах, мат и т.д.).
-    // В реальном приложении нужна полноценная библиотека для шахмат.
-    const piece = board[from.row][from.col];
-    const target = board[to.row][to.col];
-
-    if (piece === '.') {
-        return false; // Нельзя ходить пустой клеткой
-    }
-
-    const isWhitePiece = piece === piece.toUpperCase();
-    const isWhiteTurn = chessState.turn === 'w';
-
-    if (isWhiteTurn && !isWhitePiece) {
-        return false; // Сейчас ход белых, а пытаются ходить черной фигурой
-    }
-    if (!isWhiteTurn && isWhitePiece) {
-        return false; // Сейчас ход черных, а пытаются ходить белой фигурой
-    }
-
-    if (target !== '.' && isWhitePiece === (target === target.toUpperCase())) {
-        return false; // Нельзя съесть свою же фигуру
-    }
-
-    // Здесь можно добавить более сложную логику проверки для каждой фигуры
-    // Но для простого демонстрационного примера этого достаточно
-    return true;
-}
-
-// === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
 
 function loadExistingScreenshots() {
     fs.readdirSync(screenshotDir).forEach(file => {
@@ -164,7 +134,6 @@ wss.on('connection', (ws) => {
             ws.adminId = `admin-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             admins.set(ws.adminId, ws);
             console.log(`Сервер: Админ подключился, adminId: ${ws.adminId}, активных админов: ${admins.size}`);
-            // Send all screenshots to the admin
             const allScreenshots = Array.from(helperData.entries()).flatMap(([helperId, screenshots]) =>
                 screenshots.map(screenshot => ({
                     helperId,
@@ -180,15 +149,10 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
-
-        // === НОВЫЙ КОД ДЛЯ ШАХМАТ: ПОДКЛЮЧЕНИЕ ИГРОКА ===
-            // Новый админ также может быть шахматным игроком
             ws.isChessPlayer = true;
             chessPlayers.set(ws.adminId, ws);
             console.log(`Сервер: Админ ${ws.adminId} теперь также является шахматным игроком. Всего игроков: ${chessPlayers.size}`);
             broadcastChessState();
-        // === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
-
         } else if (data.type === 'request_initial_data') {
             const initialData = Array.from(helperData.entries()).map(([helperId, screenshots]) => ({
                 helperId,
@@ -221,7 +185,6 @@ wss.on('connection', (ws) => {
                         helperData.set(data.helperId, []);
                     }
                     helperData.get(data.helperId).push({ questionId, imageUrl, clientId: data.clientId || null, answer: '' });
-                    // Notify frontends (except the sender) and admins
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN) {
                             if (client.clientId && client.clientId !== data.clientId) {
@@ -258,9 +221,8 @@ wss.on('connection', (ws) => {
                 const screenshot = screenshots.find(s => s.questionId === questionId);
                 if (screenshot) {
                     screenshot.answer = answer;
-                    const targetClientId = screenshot.clientId; // Client who sent the screenshot
+                    const targetClientId = screenshot.clientId;
                     const hasAnswer = screenshots.every(s => s.answer && s.answer.trim() !== '');
-                    // Send answer to the specific client and helper
                     const targetClient = clients.get(targetClientId);
                     if (targetClient && targetClient.readyState === WebSocket.OPEN) {
                         targetClient.send(JSON.stringify({
@@ -281,7 +243,6 @@ wss.on('connection', (ws) => {
                         }));
                         console.log(`Сервер: Ответ отправлен помощнику ${helperId} для questionId: ${questionId}`);
                     }
-                    // Notify all frontends and admins about the updated helper status
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN && client.clientId) {
                             client.send(JSON.stringify({
@@ -388,28 +349,19 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
-        
-        // === НОВЫЙ КОД ДЛЯ ШАХМАТ: ОБРАБОТКА ХОДОВ ===
         } else if (data.type === 'chess_move' && ws.isChessPlayer) {
-            const { from, to } = data.move;
-            const piece = chessState.board[from.row][from.col];
-            const pieceColor = piece === piece.toUpperCase() ? 'w' : 'b';
-
-            if (pieceColor === chessState.turn && isValidChessMove(from, to, chessState.board)) {
-                // Выполняем ход
-                chessState.board[to.row][to.col] = chessState.board[from.row][from.col];
-                chessState.board[from.row][from.col] = '.';
-
-                // Меняем очередь хода
-                chessState.turn = chessState.turn === 'w' ? 'b' : 'w';
-                
-                // Рассылаем обновленное состояние всем игрокам
+            const { from, to, promotion } = data.move;
+            const fromSquare = String.fromCharCode(97 + from.col) + (8 - from.row);
+            const toSquare = String.fromCharCode(97 + to.col) + (8 - to.row);
+            const move = { from: fromSquare, to: toSquare, promotion };
+            const moveResult = chess.move(move);
+            if (moveResult) {
+                moveHistory.push(moveResult.san);
                 broadcastChessState();
             } else {
-                ws.send(JSON.stringify({ type: 'error', message: 'Неверный ход или не ваша очередь' }));
+                ws.send(JSON.stringify({ type: 'error', message: 'Неверный ход' }));
             }
         }
-        // === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
     });
 
     ws.on('close', () => {
@@ -518,14 +470,11 @@ wss.on('connection', (ws) => {
         if (ws.adminId) {
             admins.delete(ws.adminId);
             console.log(`Сервер: Админ с ID: ${ws.adminId} отключился, активных админов: ${admins.size}`);
-
-        // === НОВЫЙ КОД ДЛЯ ШАХМАТ: ОТКЛЮЧЕНИЕ ИГРОКА ===
             if (ws.isChessPlayer) {
                 chessPlayers.delete(ws.adminId);
                 console.log(`Сервер: Шахматный игрок ${ws.adminId} отключился. Всего игроков: ${chessPlayers.size}`);
                 broadcastChessState();
             }
-        // === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
         }
     });
 });
@@ -546,6 +495,7 @@ app.get('/status', (req, res) => {
         helpersCount: helperData.size,
         frontendsCount: clients.size,
         adminsCount: admins.size,
+        chessPlayersCount: chessPlayers.size,
         screenshotsCount: Array.from(helperData.values()).reduce((sum, v) => sum + v.length, 0),
         memoryUsage: process.memoryUsage()
     });
