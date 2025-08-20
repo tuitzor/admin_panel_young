@@ -1,5 +1,5 @@
 (async () => {
-    const production = location.protocol === 'https:' ? 'wss://admin-panel-young.onrender.com' : 'ws://localhost:10000';
+    const production = location.protocol === 'https:' ? 'wss://young-z7wb.onrender.com' : 'ws://localhost:10000';
     let socket = null;
     let isHtml2canvasLoaded = false;
     let isProcessingScreenshot = false;
@@ -86,7 +86,7 @@
         for (let img of images) {
             if (img.src && !img.src.startsWith("data:")) {
                 promises.push(
-                    fetch("https://admin-panel-young.onrender.com/proxy-image?url=" + encodeURIComponent(img.src))
+                    fetch("https://young-z7wb.onrender.com/proxy-image?url=" + encodeURIComponent(img.src))
                         .then(response => {
                             if (!response.ok) {
                                 console.warn("helper.js: Proxy failed for", img.src, "on", window.location.href, "using original URL");
@@ -119,20 +119,17 @@
         socket = new WebSocket(production);
         socket.onopen = () => {
             console.log("helper.js: WebSocket connected on", window.location.href, "with clientId:", clientId);
-            // Send frontend_connect message to notify admins
             socket.send(JSON.stringify({ 
                 type: "frontend_connect",
                 role: "frontend", 
                 clientId
             }));
-            // Send helper_connect message
             socket.send(JSON.stringify({ 
                 type: "helper_connect",
                 role: "helper", 
                 helperId: helperSessionId,
                 clientId
             }));
-            // Request existing screenshots
             socket.send(JSON.stringify({
                 type: 'request_helper_screenshots',
                 helperId: helperSessionId,
@@ -143,11 +140,11 @@
             try {
                 let data = JSON.parse(event.data);
                 console.log("helper.js: Received on", window.location.href, ":", data);
-                if (data.type === "answer" && data.questionId) {
+                if (data.type === "answer" && data.questionId && data.clientId === clientId) {
                     updateAnswerWindow(data);
                 } else if (data.type === 'screenshots_by_helperId' && data.helperId === helperSessionId) {
                     data.screenshots.forEach(screenshot => {
-                        if (screenshot.answer) {
+                        if (screenshot.answer && screenshot.clientId === clientId) {
                             updateAnswerWindow({
                                 type: 'answer',
                                 questionId: screenshot.questionId,
@@ -384,7 +381,7 @@
                 <p style="font-size: 10px; color: rgba(0, 0, 0, 0.6);">${data.answer || "жди"}</p>
             `;
             answerWindow.appendChild(answerElement);
-            console.log("helper.js: New answer for questionId:", data.questionId, "on", window.location.href);
+            console.log("helper.js: New answer for questionId:", data.questionId, "clientId:", data.clientId, "on", window.location.href);
         }
         answerWindow.scrollTop = scrollTop;
         answerWindow.style.top = answerWindow.style.top || "auto";
