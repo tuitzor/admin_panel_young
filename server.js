@@ -5,11 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
 const cors = require('cors');
-const Chess = require('chess.js').Chess; // Import chess.js for chess logic
 
 const app = express();
 const port = process.env.PORT || 10000;
-const secretKey = 'your-secret-key'; // Replace with a secure key in production
+const secretKey = process.env.JWT_SECRET || 'your-secret-key'; // Use env variable for security
 
 app.use(cors());
 app.use(express.json());
@@ -38,10 +37,21 @@ const clients = new Map(); // clientId -> WebSocket
 const helpers = new Map(); // helperId -> WebSocket
 const admins = new Map(); // adminId -> WebSocket
 const chessPlayers = new Map(); // adminId -> WebSocket
-const chess = new Chess(); // Initialize chess.js instance
+let chess; // Will be initialized after dynamic import
 let moveHistory = []; // Store move history
 
+// Dynamically import chess.js (ESM module)
+async function initializeChess() {
+    const { Chess } = await import('chess.js');
+    chess = new Chess(); // Initialize chess.js instance
+}
+initializeChess().catch(err => {
+    console.error('Сервер: Ошибка при загрузке chess.js:', err);
+    process.exit(1); // Exit if chess.js fails to load
+});
+
 function broadcastChessState() {
+    if (!chess) return; // Ensure chess is initialized
     const fenParts = chess.fen().split(' ');
     const board = chess.board();
     const turn = chess.turn();
@@ -350,6 +360,10 @@ wss.on('connection', (ws) => {
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
         } else if (data.type === 'chess_move' && ws.isChessPlayer) {
+            if (!chess) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Шахматный движок еще не инициализирован' }));
+                return;
+            }
             const { from, to, promotion } = data.move;
             const fromSquare = String.fromCharCode(97 + from.col) + (8 - from.row);
             const toSquare = String.fromCharCode(97 + to.col) + (8 - to.row);
@@ -374,9 +388,9 @@ wss.on('connection', (ws) => {
                 const initialLength = screenshots.length;
                 const helperClient = helpers.get(helperId);
                 let hasClientScreenshots = false;
-                screenshots.forEach((screenshot, index) => {
-                    if (screenshot.clientId === clientId) {
-                        const filePath = path.join(screenshotDir, path.basename(screenshot.questionId) + '.png');
+                for (let index = screenshots.length - 1; index >= 0; index--) {
+                    if (screenshots[index].clientId === clientId) {
+                        const filePath = path.join(screenshotDir, path.basename(screenshots[index].questionId) + '.png');
                         if (fs.existsSync(filePath)) {
                             fs.unlink(filePath, (err) => {
                                 if (err) console.error(`Сервер: Ошибка удаления файла ${filePath}:`, err);
@@ -386,11 +400,10 @@ wss.on('connection', (ws) => {
                             console.warn(`Сервер: Файл не найден для удаления: ${filePath}`);
                         }
                         screenshots.splice(index, 1);
-                        index--;
                     } else {
                         hasClientScreenshots = true;
                     }
-                });
+                }
                 if (!hasClientScreenshots && helperClient) {
                     helpers.delete(helperId);
                     console.log(`Сервер: Помощник с ID: ${helperId} удалён, так как нет активных скриншотов`);
