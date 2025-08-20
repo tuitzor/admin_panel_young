@@ -99,6 +99,17 @@ wss.on('connection', (ws) => {
                 hasAnswer: screenshots.every(s => s.answer && s.answer.trim() !== '')
             }));
             ws.send(JSON.stringify({ type: 'initial_data', data: initialData, clientId: ws.clientId }));
+            // Notify all admins about new client connection
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN && client.adminId) {
+                    client.send(JSON.stringify({
+                        type: 'client_connected',
+                        clientId: ws.clientId,
+                        adminId: client.adminId
+                    }));
+                    console.log(`Сервер: Уведомление о подключении клиента ${ws.clientId} отправлено админу ${client.adminId}`);
+                }
+            });
         } else if (data.type === 'admin_connect' && data.role === 'admin') {
             ws.adminId = data.adminId;
             const username = data.username || 'unknown'; // Fallback in case username isn't provided
