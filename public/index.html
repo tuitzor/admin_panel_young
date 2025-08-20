@@ -531,6 +531,7 @@
         let ws;
         let authToken = null;
         let adminId = null;
+        let username = null; // Store username after login
         let currentOpenHelperId = null;
         const users = new Map(); // helperId -> { helperId, clientId, screenshots: [{ questionId, imageUrl, answer }], timestamp }
         const admins = new Map(); // adminId -> { adminId, username, isOnline }
@@ -567,7 +568,7 @@
         authForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             authError.textContent = '';
-            const username = usernameInput.value.trim();
+            username = usernameInput.value.trim(); // Store username
             const password = passwordInput.value.trim();
 
             if (!username || !password) {
@@ -609,7 +610,7 @@
 
             ws.onopen = () => {
                 console.log('Admin: WebSocket подключен');
-                ws.send(JSON.stringify({ type: 'admin_connect', role: 'admin', adminId }));
+                ws.send(JSON.stringify({ type: 'admin_connect', role: 'admin', adminId, username }));
                 requestAdminList();
             };
 
@@ -753,7 +754,7 @@
                 statusDot.className = `status-dot ${admin.isOnline ? 'status-online' : 'status-offline'}`;
                 adminItem.appendChild(statusDot);
                 const adminName = document.createElement('span');
-                adminName.textContent = admin.username;
+                adminName.textContent = admin.username || 'unknown'; // Fallback to 'unknown'
                 adminItem.appendChild(adminName);
                 adminListContainer.appendChild(adminItem);
             });
@@ -764,9 +765,10 @@
                 ws.send(JSON.stringify({
                     type: 'request_admin_list',
                     role: 'admin',
-                    adminId
+                    adminId,
+                    username
                 }));
-                console.log(`Admin: Запрошен список администраторов, adminId: ${adminId}`);
+                console.log(`Admin: Запрошен список администраторов, adminId: ${adminId}, username: ${username}`);
             }
         }
 
