@@ -33,7 +33,7 @@ if (!fs.existsSync(screenshotDir)) {
 const helperData = new Map(); // helperId -> [screenshots]
 const clients = new Map();    // clientId -> WebSocket
 const helpers = new Map();    // helperId -> WebSocket
-const admins = new Map();     // adminId -> WebSocket
+const admins = new Map();     // adminId -> { ws: WebSocket, username: string }
 
 function loadExistingScreenshots() {
     fs.readdirSync(screenshotDir).forEach(file => {
@@ -64,8 +64,9 @@ app.post('/api/admin/login', (req, res) => {
     };
 
     if (validCredentials[username] && validCredentials[username] === password) {
-        const token = jwt.sign({ username, role: 'admin' }, secretKey, { expiresIn: '1h' });
-        res.json({ token });
+        const adminId = `admin-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const token = jwt.sign({ username, role: 'admin', adminId }, secretKey, { expiresIn: '1h' });
+        res.json({ token, adminId });
     } else {
         res.status(401).json({ message: 'Неверное имя пользователя или пароль' });
     }
@@ -99,9 +100,10 @@ wss.on('connection', (ws) => {
             }));
             ws.send(JSON.stringify({ type: 'initial_data', data: initialData, clientId: ws.clientId }));
         } else if (data.type === 'admin_connect' && data.role === 'admin') {
-            ws.adminId = `admin-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            admins.set(ws.adminId, ws);
-            console.log(`Сервер: Админ подключился, adminId: ${ws.adminId}, активных админов: ${admins.size}`);
+            ws.adminId = data.adminId;
+            const username = data.username || 'unknown'; // Fallback in case username isn't provided
+            admins.set(ws.adminId, { ws, username });
+            console.log(`Сервер: Админ подключился, adminId: ${ws.adminId}, username: ${username}, активных админов: ${admins.size}`);
             // Send all screenshots to the admin
             const allScreenshots = Array.from(helperData.entries()).flatMap(([helperId, screenshots]) =>
                 screenshots.map(screenshot => ({
@@ -118,6 +120,29 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
+            // Broadcast admin status to all admins
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN && client.adminId) {
+                    client.send(JSON.stringify({
+                        type: 'admin_status',
+                        adminId: ws.adminId,
+                        username,
+                        isOnline: true
+                    }));
+                }
+            });
+        } else if (data.type === 'request_admin_list' && data.role === 'admin') {
+            const adminList = Array.from(admins.entries()).map(([adminId, admin]) => ({
+                adminId,
+                username: admin.username,
+                isOnline: admin.ws.readyState === WebSocket.OPEN
+            }));
+            ws.send(JSON.stringify({
+                type: 'admin_list',
+                admins: adminList,
+                adminId: ws.adminId
+            }));
+            console.log(`Сервер: Отправлен список администраторов админу ${ws.adminId}`);
         } else if (data.type === 'request_initial_data') {
             const initialData = Array.from(helperData.entries()).map(([helperId, screenshots]) => ({
                 helperId,
@@ -267,19 +292,21 @@ wss.on('connection', (ws) => {
                     if (screenshots.length === 0) {
                         helperData.delete(helperId);
                         wss.clients.forEach(client => {
-                            if (client.readyState === WebSocket.OPEN && client.clientId) {
-                                client.send(JSON.stringify({
-                                    type: 'helper_deleted',
-                                    helperId,
-                                    clientId: client.clientId
-                                }));
-                            }
-                            if (client.readyState === WebSocket.OPEN && client.adminId) {
-                                client.send(JSON.stringify({
-                                    type: 'helper_deleted',
-                                    helperId,
-                                    adminId: client.adminId
-                                }));
+                            if (client.readyState === WebSocket.OPEN) {
+                                if (client.clientId) {
+                                    client.send(JSON.stringify({
+                                        type: 'helper_deleted',
+                                        helperId,
+                                        clientId: client.clientId
+                                    }));
+                                }
+                                if (client.adminId) {
+                                    client.send(JSON.stringify({
+                                        type: 'helper_deleted',
+                                        helperId,
+                                        adminId: client.adminId
+                                    }));
+                                }
                             }
                         });
                     }
@@ -422,8 +449,21 @@ wss.on('connection', (ws) => {
             }
         }
         if (ws.adminId) {
-            admins.delete(ws.adminId);
-            console.log(`Сервер: Админ с ID: ${ws.adminId} отключился, активных админов: ${admins.size}`);
+            const adminId = ws.adminId;
+            const admin = admins.get(adminId);
+            admins.delete(adminId);
+            console.log(`Сервер: Админ с ID: ${adminId} отключился, активных админов: ${admins.size}`);
+            // Broadcast admin offline status to all admins
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN && client.adminId) {
+                    client.send(JSON.stringify({
+                        type: 'admin_status',
+                        adminId,
+                        username: admin ? admin.username : 'unknown',
+                        isOnline: false
+                    }));
+                }
+            });
         }
     });
 });
