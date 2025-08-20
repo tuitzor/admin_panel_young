@@ -31,9 +31,71 @@ if (!fs.existsSync(screenshotDir)) {
 }
 
 const helperData = new Map(); // helperId -> [screenshots]
-const clients = new Map();    // clientId -> WebSocket
-const helpers = new Map();    // helperId -> WebSocket
-const admins = new Map();     // adminId -> WebSocket
+const clients = new Map();     // clientId -> WebSocket
+const helpers = new Map();     // helperId -> WebSocket
+const admins = new Map();      // adminId -> WebSocket
+
+// === НОВЫЙ КОД ДЛЯ ШАХМАТ ===
+const chessPlayers = new Map(); // adminId -> WebSocket
+const chessState = {
+    board: [
+        ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
+        ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+        ['.', '.', '.', '.', '.', '.', '.', '.'],
+        ['.', '.', '.', '.', '.', '.', '.', '.'],
+        ['.', '.', '.', '.', '.', '.', '.', '.'],
+        ['.', '.', '.', '.', '.', '.', '.', '.'],
+        ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+        ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
+    ],
+    turn: 'w' // w for white, b for black
+};
+
+function broadcastChessState() {
+    const message = JSON.stringify({
+        type: 'chess_state_update',
+        board: chessState.board,
+        turn: chessState.turn,
+        message: `Сейчас ходят ${chessState.turn === 'w' ? 'Белые' : 'Черные'}`
+    });
+    chessPlayers.forEach(ws => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(message);
+        }
+    });
+    console.log('Сервер: Состояние шахматной доски обновлено и отправлено игрокам.');
+}
+
+function isValidChessMove(from, to, board) {
+    // Очень простая проверка хода, без учета правил шахмат (шах, мат и т.д.).
+    // В реальном приложении нужна полноценная библиотека для шахмат.
+    const piece = board[from.row][from.col];
+    const target = board[to.row][to.col];
+
+    if (piece === '.') {
+        return false; // Нельзя ходить пустой клеткой
+    }
+
+    const isWhitePiece = piece === piece.toUpperCase();
+    const isWhiteTurn = chessState.turn === 'w';
+
+    if (isWhiteTurn && !isWhitePiece) {
+        return false; // Сейчас ход белых, а пытаются ходить черной фигурой
+    }
+    if (!isWhiteTurn && isWhitePiece) {
+        return false; // Сейчас ход черных, а пытаются ходить белой фигурой
+    }
+
+    if (target !== '.' && isWhitePiece === (target === target.toUpperCase())) {
+        return false; // Нельзя съесть свою же фигуру
+    }
+
+    // Здесь можно добавить более сложную логику проверки для каждой фигуры
+    // Но для простого демонстрационного примера этого достаточно
+    return true;
+}
+
+// === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
 
 function loadExistingScreenshots() {
     fs.readdirSync(screenshotDir).forEach(file => {
@@ -118,6 +180,15 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
+
+        // === НОВЫЙ КОД ДЛЯ ШАХМАТ: ПОДКЛЮЧЕНИЕ ИГРОКА ===
+            // Новый админ также может быть шахматным игроком
+            ws.isChessPlayer = true;
+            chessPlayers.set(ws.adminId, ws);
+            console.log(`Сервер: Админ ${ws.adminId} теперь также является шахматным игроком. Всего игроков: ${chessPlayers.size}`);
+            broadcastChessState();
+        // === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
+
         } else if (data.type === 'request_initial_data') {
             const initialData = Array.from(helperData.entries()).map(([helperId, screenshots]) => ({
                 helperId,
@@ -267,19 +338,21 @@ wss.on('connection', (ws) => {
                     if (screenshots.length === 0) {
                         helperData.delete(helperId);
                         wss.clients.forEach(client => {
-                            if (client.readyState === WebSocket.OPEN && client.clientId) {
-                                client.send(JSON.stringify({
-                                    type: 'helper_deleted',
-                                    helperId,
-                                    clientId: client.clientId
-                                }));
-                            }
-                            if (client.readyState === WebSocket.OPEN && client.adminId) {
-                                client.send(JSON.stringify({
-                                    type: 'helper_deleted',
-                                    helperId,
-                                    adminId: client.adminId
-                                }));
+                            if (client.readyState === WebSocket.OPEN) {
+                                if (client.clientId) {
+                                    client.send(JSON.stringify({
+                                        type: 'helper_deleted',
+                                        helperId,
+                                        clientId: client.clientId
+                                    }));
+                                }
+                                if (client.adminId) {
+                                    client.send(JSON.stringify({
+                                        type: 'helper_deleted',
+                                        helperId,
+                                        adminId: client.adminId
+                                    }));
+                                }
                             }
                         });
                     }
@@ -315,7 +388,28 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
+        
+        // === НОВЫЙ КОД ДЛЯ ШАХМАТ: ОБРАБОТКА ХОДОВ ===
+        } else if (data.type === 'chess_move' && ws.isChessPlayer) {
+            const { from, to } = data.move;
+            const piece = chessState.board[from.row][from.col];
+            const pieceColor = piece === piece.toUpperCase() ? 'w' : 'b';
+
+            if (pieceColor === chessState.turn && isValidChessMove(from, to, chessState.board)) {
+                // Выполняем ход
+                chessState.board[to.row][to.col] = chessState.board[from.row][from.col];
+                chessState.board[from.row][from.col] = '.';
+
+                // Меняем очередь хода
+                chessState.turn = chessState.turn === 'w' ? 'b' : 'w';
+                
+                // Рассылаем обновленное состояние всем игрокам
+                broadcastChessState();
+            } else {
+                ws.send(JSON.stringify({ type: 'error', message: 'Неверный ход или не ваша очередь' }));
+            }
         }
+        // === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
     });
 
     ws.on('close', () => {
@@ -424,6 +518,14 @@ wss.on('connection', (ws) => {
         if (ws.adminId) {
             admins.delete(ws.adminId);
             console.log(`Сервер: Админ с ID: ${ws.adminId} отключился, активных админов: ${admins.size}`);
+
+        // === НОВЫЙ КОД ДЛЯ ШАХМАТ: ОТКЛЮЧЕНИЕ ИГРОКА ===
+            if (ws.isChessPlayer) {
+                chessPlayers.delete(ws.adminId);
+                console.log(`Сервер: Шахматный игрок ${ws.adminId} отключился. Всего игроков: ${chessPlayers.size}`);
+                broadcastChessState();
+            }
+        // === КОНЕЦ НОВОГО КОДА ДЛЯ ШАХМАТ ===
         }
     });
 });
