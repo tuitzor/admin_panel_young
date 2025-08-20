@@ -8,7 +8,7 @@ const cors = require('cors');
 
 const app = express();
 const port = process.env.PORT || 10000;
-const secretKey = process.env.JWT_SECRET || 'your-secret-key'; // Используйте переменную окружения
+const secretKey = 'your-secret-key'; // Replace with a secure key in production
 
 app.use(cors());
 app.use(express.json());
@@ -19,12 +19,10 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const server = app.listen(port, () => {
+const wss = new WebSocket.Server({ server: app.listen(port, () => {
     console.log(`Сервер запущен на порту: ${port}`);
     console.log(`WebSocket-сервер запущен на ws://localhost:${port}`);
-});
-
-const wss = new WebSocket.Server({ server });
+}) });
 
 const screenshotDir = path.join(__dirname, 'public/screenshots');
 if (!fs.existsSync(screenshotDir)) {
@@ -33,50 +31,9 @@ if (!fs.existsSync(screenshotDir)) {
 }
 
 const helperData = new Map(); // helperId -> [screenshots]
-const clients = new Map(); // clientId -> WebSocket
-const helpers = new Map(); // helperId -> WebSocket
-const admins = new Map(); // adminId -> WebSocket
-const adminsInfo = new Map(); // adminId -> { username, online, lastConnected }
-const chessPlayers = new Map(); // adminId -> WebSocket (для шахмат)
-let chess; // Будет инициализирован после импорта chess.js
-let moveHistory = []; // История ходов
-
-// Динамический импорт chess.js (ESM)
-async function initializeChess() {
-    const { Chess } = await import('chess.js');
-    chess = new Chess(); // Инициализация шахмат
-}
-initializeChess().catch(err => {
-    console.error('Сервер: Ошибка при загрузке chess.js:', err);
-    process.exit(1); // Выход, если chess.js не загрузился
-});
-
-function broadcastChessState() {
-    if (!chess) return; // Проверка инициализации
-    const fenParts = chess.fen().split(' ');
-    const board = chess.board();
-    const turn = chess.turn();
-    const message = JSON.stringify({
-        type: 'chess_state_update',
-        board: board.map(row => row.map(square => square ? (square.color === 'w' ? square.type.toUpperCase() : square.type.toLowerCase()) : '.')),
-        turn,
-        moveHistory,
-        gameStatus: {
-            inCheck: chess.in_check(),
-            inCheckmate: chess.in_checkmate(),
-            inStalemate: chess.in_stalemate(),
-            inDraw: chess.in_draw(),
-            gameOver: chess.game_over()
-        },
-        message: `Сейчас ходят ${turn === 'w' ? 'Белые' : 'Черные'}${chess.in_check() ? ' (Шах!)' : ''}${chess.in_checkmate() ? ' (Шах и мат!)' : ''}${chess.in_stalemate() ? ' (Пат!)' : ''}${chess.in_draw() ? ' (Ничья!)' : ''}`
-    });
-    chessPlayers.forEach(ws => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(message);
-        }
-    });
-    console.log('Сервер: Состояние шахматной доски обновлено и отправлено игрокам.');
-}
+const clients = new Map();    // clientId -> WebSocket
+const helpers = new Map();    // helperId -> WebSocket
+const admins = new Map();     // adminId -> WebSocket
 
 function loadExistingScreenshots() {
     fs.readdirSync(screenshotDir).forEach(file => {
@@ -114,26 +71,6 @@ app.post('/api/admin/login', (req, res) => {
     }
 });
 
-function broadcastAdminList(specificWs = null) {
-    const adminList = Array.from(adminsInfo.entries()).map(([id, info]) => ({
-        username: info.username,
-        online: info.online,
-        lastConnected: info.lastConnected
-    }));
-    const message = JSON.stringify({ type: 'admin_list_update', admins: adminList });
-    if (specificWs) {
-        if (specificWs.readyState === WebSocket.OPEN) {
-            specificWs.send(message);
-        }
-    } else {
-        admins.forEach(adminWs => {
-            if (adminWs.readyState === WebSocket.OPEN) {
-                adminWs.send(message);
-            }
-        });
-    }
-}
-
 wss.on('connection', (ws) => {
     console.log('Сервер: Новый клиент подключился по WebSocket');
     ws.isAlive = true;
@@ -161,18 +98,11 @@ wss.on('connection', (ws) => {
                 hasAnswer: screenshots.every(s => s.answer && s.answer.trim() !== '')
             }));
             ws.send(JSON.stringify({ type: 'initial_data', data: initialData, clientId: ws.clientId }));
-            // Уведомление админам о новом клиенте
-            admins.forEach(adminWs => {
-                if (adminWs.readyState === WebSocket.OPEN) {
-                    adminWs.send(JSON.stringify({ type: 'new_client_connected', clientId: ws.clientId }));
-                }
-            });
         } else if (data.type === 'admin_connect' && data.role === 'admin') {
             ws.adminId = `admin-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             admins.set(ws.adminId, ws);
-            adminsInfo.set(ws.adminId, { username: data.username, online: true, lastConnected: Date.now() });
-            console.log(`Сервер: Админ подключился, adminId: ${ws.adminId}, ник: ${data.username}, активных админов: ${admins.size}`);
-            // Отправляем все скриншоты
+            console.log(`Сервер: Админ подключился, adminId: ${ws.adminId}, активных админов: ${admins.size}`);
+            // Send all screenshots to the admin
             const allScreenshots = Array.from(helperData.entries()).flatMap(([helperId, screenshots]) =>
                 screenshots.map(screenshot => ({
                     helperId,
@@ -188,13 +118,6 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
-            // Отправляем список админов
-            broadcastAdminList();
-            // Шахматы
-            ws.isChessPlayer = true;
-            chessPlayers.set(ws.adminId, ws);
-            console.log(`Сервер: Админ ${ws.adminId} теперь также является шахматным игроком. Всего игроков: ${chessPlayers.size}`);
-            broadcastChessState();
         } else if (data.type === 'request_initial_data') {
             const initialData = Array.from(helperData.entries()).map(([helperId, screenshots]) => ({
                 helperId,
@@ -227,6 +150,7 @@ wss.on('connection', (ws) => {
                         helperData.set(data.helperId, []);
                     }
                     helperData.get(data.helperId).push({ questionId, imageUrl, clientId: data.clientId || null, answer: '' });
+                    // Notify frontends (except the sender) and admins
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN) {
                             if (client.clientId && client.clientId !== data.clientId) {
@@ -247,11 +171,6 @@ wss.on('connection', (ws) => {
                                     clientId: data.clientId,
                                     adminId: client.adminId
                                 }));
-                                client.send(JSON.stringify({
-                                    type: 'new_screenshot_notification',
-                                    clientId: data.clientId,
-                                    helperId: data.helperId
-                                }));
                                 console.log(`Сервер: Сообщение о скриншоте отправлено админу ${client.adminId}`);
                             }
                         }
@@ -268,8 +187,9 @@ wss.on('connection', (ws) => {
                 const screenshot = screenshots.find(s => s.questionId === questionId);
                 if (screenshot) {
                     screenshot.answer = answer;
-                    const targetClientId = screenshot.clientId;
+                    const targetClientId = screenshot.clientId; // Client who sent the screenshot
                     const hasAnswer = screenshots.every(s => s.answer && s.answer.trim() !== '');
+                    // Send answer to the specific client and helper
                     const targetClient = clients.get(targetClientId);
                     if (targetClient && targetClient.readyState === WebSocket.OPEN) {
                         targetClient.send(JSON.stringify({
@@ -290,6 +210,7 @@ wss.on('connection', (ws) => {
                         }));
                         console.log(`Сервер: Ответ отправлен помощнику ${helperId} для questionId: ${questionId}`);
                     }
+                    // Notify all frontends and admins about the updated helper status
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN && client.clientId) {
                             client.send(JSON.stringify({
@@ -346,21 +267,19 @@ wss.on('connection', (ws) => {
                     if (screenshots.length === 0) {
                         helperData.delete(helperId);
                         wss.clients.forEach(client => {
-                            if (client.readyState === WebSocket.OPEN) {
-                                if (client.clientId) {
-                                    client.send(JSON.stringify({
-                                        type: 'helper_deleted',
-                                        helperId,
-                                        clientId: client.clientId
-                                    }));
-                                }
-                                if (client.adminId) {
-                                    client.send(JSON.stringify({
-                                        type: 'helper_deleted',
-                                        helperId,
-                                        adminId: client.adminId
-                                    }));
-                                }
+                            if (client.readyState === WebSocket.OPEN && client.clientId) {
+                                client.send(JSON.stringify({
+                                    type: 'helper_deleted',
+                                    helperId,
+                                    clientId: client.clientId
+                                }));
+                            }
+                            if (client.readyState === WebSocket.OPEN && client.adminId) {
+                                client.send(JSON.stringify({
+                                    type: 'helper_deleted',
+                                    helperId,
+                                    adminId: client.adminId
+                                }));
                             }
                         });
                     }
@@ -396,23 +315,6 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
-            broadcastAdminList(ws);
-        } else if (data.type === 'chess_move' && ws.isChessPlayer) {
-            if (!chess) {
-                ws.send(JSON.stringify({ type: 'error', message: 'Шахматный движок еще не инициализирован' }));
-                return;
-            }
-            const { from, to, promotion } = data.move;
-            const fromSquare = String.fromCharCode(97 + from.col) + (8 - from.row);
-            const toSquare = String.fromCharCode(97 + to.col) + (8 - to.row);
-            const move = { from: fromSquare, to: toSquare, promotion };
-            const moveResult = chess.move(move);
-            if (moveResult) {
-                moveHistory.push(moveResult.san);
-                broadcastChessState();
-            } else {
-                ws.send(JSON.stringify({ type: 'error', message: 'Неверный ход' }));
-            }
         }
     });
 
@@ -426,9 +328,9 @@ wss.on('connection', (ws) => {
                 const initialLength = screenshots.length;
                 const helperClient = helpers.get(helperId);
                 let hasClientScreenshots = false;
-                for (let index = screenshots.length - 1; index >= 0; index--) {
-                    if (screenshots[index].clientId === clientId) {
-                        const filePath = path.join(screenshotDir, path.basename(screenshots[index].questionId) + '.png');
+                screenshots.forEach((screenshot, index) => {
+                    if (screenshot.clientId === clientId) {
+                        const filePath = path.join(screenshotDir, path.basename(screenshot.questionId) + '.png');
                         if (fs.existsSync(filePath)) {
                             fs.unlink(filePath, (err) => {
                                 if (err) console.error(`Сервер: Ошибка удаления файла ${filePath}:`, err);
@@ -438,10 +340,11 @@ wss.on('connection', (ws) => {
                             console.warn(`Сервер: Файл не найден для удаления: ${filePath}`);
                         }
                         screenshots.splice(index, 1);
+                        index--;
                     } else {
                         hasClientScreenshots = true;
                     }
-                }
+                });
                 if (!hasClientScreenshots && helperClient) {
                     helpers.delete(helperId);
                     console.log(`Сервер: Помощник с ID: ${helperId} удалён, так как нет активных скриншотов`);
@@ -519,19 +422,8 @@ wss.on('connection', (ws) => {
             }
         }
         if (ws.adminId) {
-            const adminId = ws.adminId;
-            if (adminsInfo.has(adminId)) {
-                adminsInfo.get(adminId).online = false;
-                adminsInfo.get(adminId).lastConnected = Date.now();
-            }
-            admins.delete(adminId);
-            console.log(`Сервер: Админ с ID: ${adminId} отключился, активных админов: ${admins.size}`);
-            broadcastAdminList();
-            if (ws.isChessPlayer) {
-                chessPlayers.delete(adminId);
-                console.log(`Сервер: Шахматный игрок ${adminId} отключился. Всего игроков: ${chessPlayers.size}`);
-                broadcastChessState();
-            }
+            admins.delete(ws.adminId);
+            console.log(`Сервер: Админ с ID: ${ws.adminId} отключился, активных админов: ${admins.size}`);
         }
     });
 });
@@ -552,7 +444,6 @@ app.get('/status', (req, res) => {
         helpersCount: helperData.size,
         frontendsCount: clients.size,
         adminsCount: admins.size,
-        chessPlayersCount: chessPlayers.size,
         screenshotsCount: Array.from(helperData.values()).reduce((sum, v) => sum + v.length, 0),
         memoryUsage: process.memoryUsage()
     });
