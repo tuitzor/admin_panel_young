@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title id="page-title">Админ-Панель</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -174,7 +175,6 @@
             display: block;
         }
 
-        /* Styles for Screenshots Panel */
         .header-container {
             display: flex;
             justify-content: space-between;
@@ -423,25 +423,25 @@
             padding: 50px;
         }
 
-        /* Chess Game Styles */
         #chess-container h1 {
             text-align: center;
             color: #333;
         }
         .board {
             display: grid;
-            grid-template-columns: repeat(8, 50px);
-            grid-template-rows: repeat(8, 50px);
+            grid-template-columns: repeat(8, 60px);
+            grid-template-rows: repeat(8, 60px);
             border: 2px solid #333;
             margin: 20px auto;
+            width: 480px;
         }
         .square {
-            width: 50px;
-            height: 50px;
+            width: 60px;
+            height: 60px;
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 30px;
+            font-size: 36px;
             cursor: pointer;
             user-select: none;
         }
@@ -452,6 +452,19 @@
         .message-box {
             font-weight: bold;
             text-align: center;
+            margin: 10px 0;
+            color: #333;
+        }
+        #move-history {
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px auto;
+            width: 480px;
+            text-align: left;
         }
 
         @media (max-width: 768px) {
@@ -468,13 +481,26 @@
                 padding: 10px;
                 font-size: 0.9em;
             }
+            .board {
+                grid-template-columns: repeat(8, 40px);
+                grid-template-rows: repeat(8, 40px);
+                width: 320px;
+            }
+            .square {
+                width: 40px;
+                height: 40px;
+                font-size: 24px;
+            }
+            #move-history {
+                width: 320px;
+            }
         }
     </style>
 </head>
 <body>
     <div id="auth-page-container">
         <div id="auth-page-content">
-            <h2 id="auth-title">Тебя ждут....</h2>
+            <h2 id="auth-title">Тебя ждут...</h2>
             <form id="auth-form">
                 <input type="text" id="username" placeholder="Имя пользователя (например, admin1)" required>
                 <input type="password" id="password" placeholder="Пароль (например, adminXA)" required>
@@ -506,7 +532,7 @@
 
             <div id="screenshots-tab" class="tab-content active">
                 <div class="header-container">
-                    <h1>Терпение, главный ключ ко всем дверям....</h1>
+                    <h1>Терпение, главный ключ ко всем дверям...</h1>
                     <button id="refresh-users">Обновить</button>
                 </div>
                 <div id="user-cards-container">
@@ -516,10 +542,11 @@
             
             <div id="chess-tab" class="tab-content">
                 <div class="chess-header">
-                    <h1 class="chess-title">Шахматы для 6 админов</h1>
+                    <h1 class="chess-title">Шахматы</h1>
                     <p id="chess-status" class="message-box">Ожидание игроков...</p>
                 </div>
                 <div id="chess-board" class="board"></div>
+                <div id="move-history" class="message-box">История ходов:</div>
             </div>
         </div>
     </div>
@@ -534,7 +561,6 @@
     </div>
 
     <script>
-        // --- Tab Switching Logic ---
         function showTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
@@ -547,7 +573,6 @@
             event.target.classList.add('active');
         }
 
-        // --- Original Admin Panel Logic ---
         const authPageContainer = document.getElementById('auth-page-container');
         const errorPageContainer = document.getElementById('error-page-container');
         const mainAppContainer = document.getElementById('main-app-container');
@@ -570,7 +595,7 @@
         let authToken = null;
         let adminId = null;
         let currentOpenHelperId = null;
-        const users = new Map(); // helperId -> { helperId, clientId, screenshots: [{ questionId, imageUrl, answer }], timestamp }
+        const users = new Map();
 
         function showPage(pageName) {
             authPageContainer.style.display = 'none';
@@ -656,7 +681,6 @@
                     return;
                 }
 
-                // Handle screenshot-related messages
                 if (data.type === 'all_screenshots') {
                     users.clear();
                     data.screenshots.forEach(ss => {
@@ -734,7 +758,6 @@
                     alert(data.message);
                 }
 
-                // Handle chess-related messages
                 if (data.type === 'chess_state_update') {
                     handleChessUpdate(data);
                 }
@@ -941,74 +964,180 @@
         }
 
         refreshUsersButton.addEventListener('click', refreshUsers);
-        
-        // --- Chess Game Logic ---
+
         const chessBoardElement = document.getElementById('chess-board');
         const chessStatusElement = document.getElementById('chess-status');
+        const moveHistoryElement = document.getElementById('move-history');
         let selectedSquare = null;
-        let boardState = null;
-        let currentTurn = 'w';
-        
+        let chess = new Chess();
+        let moveHistory = [];
+
         const pieceSymbols = {
             'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚', 'p': '♟',
-            'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔', 'P': '♙',
-            '.': ''
+            'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔', 'P': '♙'
         };
 
+        function boardToFenPosition(board) {
+            let fen = '';
+            for (let row = 0; row < 8; row++) {
+                let empty = 0;
+                for (let col = 0; col < 8; col++) {
+                    let p = board[row][col];
+                    if (p === '.') {
+                        empty++;
+                    } else {
+                        if (empty > 0) {
+                            fen += empty;
+                            empty = 0;
+                        }
+                        fen += p;
+                    }
+                }
+                if (empty > 0) {
+                    fen += empty;
+                }
+                if (row < 7) {
+                    fen += '/';
+                }
+            }
+            return fen;
+        }
+
         function handleChessUpdate(data) {
-            boardState = data.board;
-            currentTurn = data.turn;
-            chessStatusElement.textContent = `Сейчас ходят ${currentTurn === 'w' ? 'Белые' : 'Черные'}`;
+            let newBoard = data.board;
+            let newTurn = data.turn;
+            let newPosition = boardToFenPosition(newBoard);
+            let newFen = `${newPosition} ${newTurn} KQkq - 0 1`;
+
+            let foundMove = false;
+            let possibleMoves = chess.moves({ verbose: true });
+            for (let m of possibleMoves) {
+                chess.move(m.san);
+                if (chess.fen().split(' ').slice(0, 2).join(' ') === newFen.split(' ').slice(0, 2).join(' ')) {
+                    foundMove = true;
+                    moveHistory.push(m.san);
+                    break;
+                }
+                chess.undo();
+            }
+
+            if (!foundMove) {
+                chess.load(newFen);
+                moveHistory = [];
+            }
+
             drawChessBoard();
+            updateStatus();
+            updateHistory();
         }
 
         function drawChessBoard() {
             chessBoardElement.innerHTML = '';
             for (let row = 0; row < 8; row++) {
                 for (let col = 0; col < 8; col++) {
+                    const squareName = String.fromCharCode(97 + col) + (8 - row);
+                    const piece = chess.get(squareName);
                     const square = document.createElement('div');
                     square.classList.add('square');
                     square.classList.add((row + col) % 2 === 0 ? 'light' : 'dark');
                     square.dataset.row = row;
                     square.dataset.col = col;
-
-                    const piece = boardState[row][col];
-                    square.textContent = pieceSymbols[piece] || '';
-
+                    square.dataset.square = squareName;
+                    if (piece) {
+                        const pieceCode = piece.color === 'w' ? piece.type.toUpperCase() : piece.type.toLowerCase();
+                        square.textContent = pieceSymbols[pieceCode];
+                    }
                     square.addEventListener('click', () => handleChessSquareClick(row, col));
                     chessBoardElement.appendChild(square);
                 }
             }
         }
 
-        function handleChessSquareClick(row, col) {
-            if (!boardState) return;
-            const clickedPiece = boardState[row][col];
-            const pieceColor = clickedPiece === clickedPiece.toUpperCase() ? 'w' : 'b';
+        function removeHighlights() {
+            document.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
+            document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+        }
 
-            if (selectedSquare === null && clickedPiece !== '.' && pieceColor === currentTurn) {
-                selectedSquare = { row, col };
-                const squareElement = document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
-                squareElement.classList.add('selected');
-            } else if (selectedSquare) {
-                const move = {
-                    from: { row: selectedSquare.row, col: selectedSquare.col },
-                    to: { row, col }
-                };
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'chess_move', move }));
+        function handleChessSquareClick(row, col) {
+            const squareName = String.fromCharCode(97 + col) + (8 - row);
+            const piece = chess.get(squareName);
+
+            if (selectedSquare === null) {
+                if (piece && piece.color === chess.turn()) {
+                    selectedSquare = { row, col, square: squareName };
+                    const squareElement = document.querySelector(`[data-square="${squareName}"]`);
+                    squareElement.classList.add('selected');
+                    const moves = chess.moves({ square: squareName, verbose: true });
+                    for (let move of moves) {
+                        const toEl = document.querySelector(`[data-square="${move.to}"]`);
+                        toEl.classList.add('highlight');
+                    }
                 }
-                
-                const selectedElement = document.querySelector('.selected');
-                if (selectedElement) {
-                    selectedElement.classList.remove('selected');
+            } else {
+                const toSquare = squareName;
+                const fromSquare = selectedSquare.square;
+                const selectedPiece = chess.get(fromSquare);
+                let promotion = undefined;
+                let moveResult = chess.move({ from: fromSquare, to: toSquare });
+                let valid = false;
+                if (moveResult) {
+                    chess.undo();
+                    valid = true;
+                } else if (selectedPiece.type === 'p' && ((chess.turn() === 'w' && row === 0) || (chess.turn() === 'b' && row === 7))) {
+                    promotion = 'q';
+                    moveResult = chess.move({ from: fromSquare, to: toSquare, promotion });
+                    if (moveResult) {
+                        chess.undo();
+                        valid = true;
+                    }
                 }
+
+                if (valid && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'chess_move',
+                        move: {
+                            from: { row: selectedSquare.row, col: selectedSquare.col },
+                            to: { row, col },
+                            promotion: promotion
+                        }
+                    }));
+                }
+
+                removeHighlights();
                 selectedSquare = null;
             }
         }
-        
+
+        function updateStatus() {
+            let status = `Сейчас ходят ${chess.turn() === 'w' ? 'Белые' : 'Черные'}`;
+            if (chess.in_checkmate()) {
+                status = `Шах и мат! ${chess.turn() === 'w' ? 'Черные' : 'Белые'} выиграли!`;
+            } else if (chess.in_stalemate()) {
+                status = 'Пат! Игра окончена.';
+            } else if (chess.in_draw()) {
+                status = 'Ничья!';
+            } else if (chess.in_check()) {
+                status += ' Шах!';
+            }
+            chessStatusElement.textContent = status;
+        }
+
+        function updateHistory() {
+            let html = 'История ходов:<br>';
+            for (let i = 0; i < moveHistory.length; i++) {
+                if (i % 2 === 0) {
+                    html += `${Math.floor(i/2) + 1}. ${moveHistory[i]} `;
+                } else {
+                    html += `${moveHistory[i]}<br>`;
+                }
+            }
+            moveHistoryElement.innerHTML = html;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             showPage('auth');
+            drawChessBoard();
+            updateStatus();
         });
     </script>
 </body>
