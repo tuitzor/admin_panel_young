@@ -119,12 +119,20 @@
         socket = new WebSocket(production);
         socket.onopen = () => {
             console.log("helper.js: WebSocket connected on", window.location.href, "with clientId:", clientId);
+            // Send frontend_connect message to notify admins
+            socket.send(JSON.stringify({ 
+                type: "frontend_connect",
+                role: "frontend", 
+                clientId
+            }));
+            // Send helper_connect message
             socket.send(JSON.stringify({ 
                 type: "helper_connect",
                 role: "helper", 
                 helperId: helperSessionId,
                 clientId
             }));
+            // Request existing screenshots
             socket.send(JSON.stringify({
                 type: 'request_helper_screenshots',
                 helperId: helperSessionId,
@@ -144,7 +152,7 @@
                                 type: 'answer',
                                 questionId: screenshot.questionId,
                                 answer: screenshot.answer,
-                                clientId: clientId
+                                clientId: data.clientId
                             });
                         }
                     });
