@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title id="page-title">Админ-Панель</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+    <title id="page-title">Панель авторизации</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -141,52 +140,18 @@
             flex-direction: column;
             gap: 20px;
         }
-
-        .tabs-container {
-            display: flex;
-            justify-content: center;
-            margin-bottom: 20px;
-        }
-
-        .tab-button {
-            padding: 10px 20px;
-            font-size: 16px;
-            border: none;
-            cursor: pointer;
-            background-color: #ddd;
-            border-radius: 5px;
-            margin: 0 5px;
-            flex: 1;
-            max-width: 200px;
-            text-align: center;
-            transition: background-color 0.2s ease, color 0.2s ease;
-        }
-
-        .tab-button.active {
-            background-color: #337ab7;
-            color: white;
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .header-container {
+        #main-app-content .header-container {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
         }
-        .header-container h1 {
+        #main-app-content .header-container h1 {
             margin: 0;
             flex-grow: 1;
             text-align: center;
         }
-        .header-container button {
+        #main-app-content button {
             background-color: #007bff;
             color: white;
             padding: 10px 20px;
@@ -196,7 +161,7 @@
             font-size: 1em;
             transition: background-color 0.2s ease;
         }
-        .header-container button:hover {
+        #main-app-content button:hover {
             background-color: #0056b3;
         }
 
@@ -235,6 +200,7 @@
             color: #666;
             font-weight: bold;
         }
+
         .no-users-message {
             text-align: center;
             grid-column: 1 / -1;
@@ -423,76 +389,6 @@
             padding: 50px;
         }
 
-        /* Chess Game Styles */
-        #chess-container h1 {
-            text-align: center;
-            color: #333;
-        }
-        .board {
-            display: grid;
-            grid-template-columns: repeat(8, 50px);
-            grid-template-rows: repeat(8, 50px);
-            border: 2px solid #333;
-            margin: 20px auto;
-        }
-        .square {
-            width: 50px;
-            height: 50px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 30px;
-            cursor: pointer;
-            user-select: none;
-        }
-        .light { background-color: #f0d9b5; }
-        .dark { background-color: #b58863; }
-        .selected { background-color: #58a4b0; }
-        .highlight { background-color: #f7ca12; }
-        .message-box {
-            font-weight: bold;
-            text-align: center;
-        }
-
-        /* Новая боковая панель для списка админов */
-        #screenshots-tab {
-            display: flex;
-            gap: 20px;
-        }
-        #admin-sidebar {
-            width: 250px;
-            background-color: #fff;
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        }
-        #admin-sidebar h2 {
-            font-size: 1.2em;
-            margin-bottom: 10px;
-            color: #333;
-        }
-        .admin-item {
-            padding: 10px;
-            margin-bottom: 10px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        .admin-item .nickname {
-            font-weight: bold;
-        }
-        .admin-item .status-online {
-            color: green;
-        }
-        .admin-item .status-offline {
-            color: red;
-        }
-        .admin-item .last-connected {
-            font-size: 0.8em;
-            color: #666;
-        }
-        #user-cards-section {
-            flex-grow: 1;
-        }
-
         @media (max-width: 768px) {
             #user-cards-container {
                 grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -506,13 +402,6 @@
             .screenshot-item .action-buttons button {
                 padding: 10px;
                 font-size: 0.9em;
-            }
-            #screenshots-tab {
-                flex-direction: column;
-            }
-            #admin-sidebar {
-                width: 100%;
-                margin-bottom: 20px;
             }
         }
     </style>
@@ -545,34 +434,12 @@
 
     <div id="main-app-container">
         <div id="main-app-content">
-            <div class="tabs-container">
-                <button class="tab-button active" onclick="showTab('screenshots-tab')">Скриншоты</button>
-                <button class="tab-button" onclick="showTab('chess-tab')">Шахматы</button>
+            <div class="header-container">
+                <h1>Терпение, главный ключ ко всем дверям....</h1>
+                <button id="refresh-users">Обновить</button>
             </div>
-
-            <div id="screenshots-tab" class="tab-content active">
-                <div id="admin-sidebar">
-                    <h2>Список админов</h2>
-                    <div id="admin-list-container"></div>
-                </div>
-                <div id="user-cards-section">
-                    <div class="header-container">
-                        <h1>Терпение, главный ключ ко всем дверям....</h1>
-                        <button id="refresh-users">Обновить</button>
-                    </div>
-                    <div id="user-cards-container">
-                        <p class="no-users-message" id="no-users-message">Ожидание пользователей...</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="chess-tab" class="tab-content">
-                <div class="chess-header">
-                    <h1 class="chess-title">Шахматы для 6 админов</h1>
-                    <p id="chess-status" class="message-box">Ожидание игроков...</p>
-                </div>
-                <div id="chess-board" class="board"></div>
-                <div id="move-history" class="message-box">История ходов:</div>
+            <div id="user-cards-container">
+                <p class="no-users-message" id="no-users-message">Ожидание пользователей...</p>
             </div>
         </div>
     </div>
@@ -587,20 +454,6 @@
     </div>
 
     <script>
-        // --- Tab Switching Logic ---
-        function showTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.getElementById(tabId).classList.add('active');
-
-            document.querySelectorAll('.tab-button').forEach(button => {
-                button.classList.remove('active');
-            });
-            event.target.classList.add('active');
-        }
-
-        // --- Original Admin Panel Logic ---
         const authPageContainer = document.getElementById('auth-page-container');
         const errorPageContainer = document.getElementById('error-page-container');
         const mainAppContainer = document.getElementById('main-app-container');
@@ -618,15 +471,12 @@
         const modalCloseButton = document.getElementById('modal-close-button');
         const modalScreenshotsContainer = document.getElementById('modal-screenshots-container');
         const screenshotCounter = document.getElementById('screenshot-counter');
-        const adminListContainer = document.getElementById('admin-list-container');
 
         let ws;
         let authToken = null;
         let adminId = null;
         let currentOpenHelperId = null;
-        let username = null; // Храним ник админа
         const users = new Map(); // helperId -> { helperId, clientId, screenshots: [{ questionId, imageUrl, answer }], timestamp }
-        const adminsList = []; // Массив для списка админов { username, online, lastConnected }
 
         function showPage(pageName) {
             authPageContainer.style.display = 'none';
@@ -659,10 +509,10 @@
         authForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             authError.textContent = '';
-            const usernameVal = usernameInput.value.trim();
+            const username = usernameInput.value.trim();
             const password = passwordInput.value.trim();
 
-            if (!usernameVal || !password) {
+            if (!username || !password) {
                 authError.textContent = 'Требуются имя пользователя и пароль';
                 return;
             }
@@ -671,13 +521,12 @@
                 const response = await fetch('/api/admin/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: usernameVal, password })
+                    body: JSON.stringify({ username, password })
                 });
                 const data = await response.json();
 
                 if (response.ok) {
                     authToken = data.token;
-                    username = usernameVal; // Сохраняем ник
                     showPage('main_app');
                 } else {
                     authError.textContent = data.message || 'Ошибка входа. Проверьте имя пользователя и пароль.';
@@ -700,7 +549,7 @@
 
             ws.onopen = () => {
                 console.log('Admin: WebSocket подключен');
-                ws.send(JSON.stringify({ type: 'admin_connect', role: 'admin', username })); // Отправляем ник
+                ws.send(JSON.stringify({ type: 'admin_connect', role: 'admin' }));
             };
 
             ws.onmessage = (event) => {
@@ -713,7 +562,6 @@
                     return;
                 }
 
-                // Handle screenshot-related messages
                 if (data.type === 'all_screenshots') {
                     users.clear();
                     data.screenshots.forEach(ss => {
@@ -752,8 +600,6 @@
                         answer: ''
                     });
                     renderUserCards();
-                    // Уведомление для админов
-                    alert(`Новый скриншот от клиента ${data.clientId} для помощника ${data.helperId}`);
                 } else if (data.type === 'update_screenshot') {
                     const user = Array.from(users.values()).find(u => u.screenshots.some(s => s.questionId === data.questionId));
                     if (user) {
@@ -792,24 +638,6 @@
                     console.error('Admin: Ошибка сервера:', data.message);
                     alert(data.message);
                 }
-
-                // Handle chess-related messages
-                if (data.type === 'chess_state_update') {
-                    handleChessUpdate(data);
-                }
-
-                // Новые сообщения для списка админов
-                if (data.type === 'admin_list_update') {
-                    adminsList.splice(0, adminsList.length, ...data.admins);
-                    renderAdminList();
-                }
-
-                // Уведомление о новом клиенте
-                if (data.type === 'new_client_connected') {
-                    alert(`Новый клиент подключился: ${data.clientId}`);
-                }
-
-                // Уведомление о новом скриншоте (уже в new_screenshot)
             };
 
             ws.onclose = () => {
@@ -821,20 +649,6 @@
                 console.error('Admin: Ошибка WebSocket:', error);
                 showPage('error');
             };
-        }
-
-        function renderAdminList() {
-            adminListContainer.innerHTML = '';
-            adminsList.forEach(admin => {
-                const item = document.createElement('div');
-                item.className = 'admin-item';
-                item.innerHTML = `
-                    <div class="nickname">${admin.username}</div>
-                    <div class="status-${admin.online ? 'online' : 'offline'}">${admin.online ? 'Онлайн' : 'Оффлайн'}</div>
-                    <div class="last-connected">Последнее подключение: ${new Date(admin.lastConnected).toLocaleString()}</div>
-                `;
-                adminListContainer.appendChild(item);
-            });
         }
 
         function renderUserCards() {
@@ -1028,152 +842,11 @@
 
         refreshUsersButton.addEventListener('click', refreshUsers);
 
-        // --- Chess Game Logic ---
-        const chessBoardElement = document.getElementById('chess-board');
-        const chessStatusElement = document.getElementById('chess-status');
-        const moveHistoryElement = document.getElementById('move-history');
-        let selectedSquare = null;
-        let boardState = null;
-        let currentTurn = 'w';
-        let chess = new Chess();
-        let moveHistory = [];
-        
-        const pieceSymbols = {
-            'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚', 'p': '♟',
-            'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔', 'P': '♙',
-            '.': ''
-        };
-
-        function boardToFenPosition(board) {
-            let fen = '';
-            for (let row = 0; row < 8; row++) {
-                let empty = 0;
-                for (let col = 0; col < 8; col++) {
-                    let p = board[row][col];
-                    if (p === '.') {
-                        empty++;
-                    } else {
-                        if (empty > 0) {
-                            fen += empty;
-                            empty = 0;
-                        }
-                        fen += p;
-                    }
-                }
-                if (empty > 0) {
-                    fen += empty;
-                }
-                if (row < 7) {
-                    fen += '/';
-                }
-            }
-            return fen;
-        }
-
-        function handleChessUpdate(data) {
-            let newBoard = data.board;
-            let newTurn = data.turn;
-            let newPosition = boardToFenPosition(newBoard);
-            let newFen = newPosition + ' ' + newTurn + ' - - 0 1';
-
-            let foundMove = false;
-            let possibleMoves = chess.moves({verbose: true});
-            for (let m of possibleMoves) {
-                chess.move(m.san);
-                if (chess.fen() === newFen) {
-                    foundMove = true;
-                    moveHistory.push(m.san);
-                    break;
-                }
-                chess.undo();
-            }
-
-            if (!foundMove) {
-                chess.load(newFen);
-                moveHistory = [];
-            }
-
-            currentTurn = newTurn;
-            boardState = newBoard;
-            drawChessBoard();
-            updateStatus();
-            updateHistory();
-        }
-
-        function drawChessBoard() {
-            chessBoardElement.innerHTML = '';
-            for (let row = 0; row < 8; row++) {
-                for (let col = 0; col < 8; col++) {
-                    const square = document.createElement('div');
-                    square.classList.add('square');
-                    square.classList.add((row + col) % 2 === 0 ? 'light' : 'dark');
-                    square.dataset.row = row;
-                    square.dataset.col = col;
-
-                    const piece = boardState[row][col];
-                    square.textContent = pieceSymbols[piece] || '';
-
-                    square.addEventListener('click', () => handleChessSquareClick(row, col));
-                    chessBoardElement.appendChild(square);
-                }
-            }
-        }
-
-        function handleChessSquareClick(row, col) {
-            if (!boardState) return;
-            const clickedPiece = boardState[row][col];
-            const pieceColor = clickedPiece === clickedPiece.toUpperCase() ? 'w' : 'b';
-
-            if (selectedSquare === null && clickedPiece !== '.' && pieceColor === currentTurn) {
-                selectedSquare = { row, col };
-                const squareElement = document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
-                squareElement.classList.add('selected');
-            } else if (selectedSquare) {
-                const move = {
-                    from: { row: selectedSquare.row, col: selectedSquare.col },
-                    to: { row, col }
-                };
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'chess_move', move }));
-                }
-                
-                const selectedElement = document.querySelector('.selected');
-                if (selectedElement) {
-                    selectedElement.classList.remove('selected');
-                }
-                selectedSquare = null;
-            }
-        }
-        
-        function updateStatus() {
-            let status = `Сейчас ходят ${currentTurn === 'w' ? 'Белые' : 'Черные'}`;
-            if (chess.in_checkmate()) {
-                status += ' Шах и мат!';
-            } else if (chess.in_stalemate()) {
-                status += ' Пат!';
-            } else if (chess.in_draw()) {
-                status += ' Ничья!';
-            } else if (chess.in_check()) {
-                status += ' Шах!';
-            }
-            chessStatusElement.textContent = status;
-        }
-
-        function updateHistory() {
-            let html = 'История ходов:<br>';
-            for (let i = 0; i < moveHistory.length; i++) {
-                if (i % 2 === 0) {
-                    html += `${Math.floor(i/2) + 1}. ${moveHistory[i]} `;
-                } else {
-                    html += `${moveHistory[i]}<br>`;
-                }
-            }
-            moveHistoryElement.innerHTML = html;
-        }
-        
         document.addEventListener('DOMContentLoaded', () => {
             showPage('auth');
         });
     </script>
 </body>
 </html>
+
+
