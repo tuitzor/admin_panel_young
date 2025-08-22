@@ -1,5 +1,5 @@
 (async () => {
-    const production = location.protocol === 'https:' ? 'wss://admin-panel-young.onrender.com' : 'ws://localhost:10000';
+    const production = location.protocol === 'https:' ? 'wss://young-z7wb.onrender.com' : 'ws://localhost:10000';
     let socket = null;
     let isHtml2canvasLoaded = false;
     let isProcessingScreenshot = false;
@@ -14,15 +14,6 @@
         clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         localStorage.setItem('clientId', clientId);
     }
-
-    let rightClickCount = parseInt(localStorage.getItem('rightClickCount') || '0', 10);
-    console.log("helper.js: Initial rightClickCount:", rightClickCount, "on", window.location.href);
-
-    if (rightClickCount >= 5) {
-        console.log("helper.js: Script disabled due to 5 right clicks on", window.location.href);
-        return;
-    }
-
     console.log("helper.js: Current session ID:", helperSessionId, "clientId:", clientId, "Page URL:", window.location.href);
 
     function setCursor(state) {
@@ -43,7 +34,7 @@
     }, 3000);
 
     let script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
     script.onload = async () => {
         isHtml2canvasLoaded = true;
         console.log("helper.js: html2canvas loaded on", window.location.href);
@@ -65,7 +56,7 @@
             console.log("helper.js: .js-banned-screen removed on", window.location.href);
         }
         const originalAudio = window.Audio;
-        window.Audio = function(src) {
+        window.Audio = function (src) {
             if (src && src.includes("beep.mp3")) {
                 console.log("helper.js: Blocked beep.mp3 on", window.location.href);
                 return { play: () => {} };
@@ -95,7 +86,7 @@
         for (let img of images) {
             if (img.src && !img.src.startsWith("data:")) {
                 promises.push(
-                    fetch("https://admin-panel-young.onrender.com/proxy-image?url=" + encodeURIComponent(img.src))
+                    fetch("https://young-z7wb.onrender.com/proxy-image?url=" + encodeURIComponent(img.src))
                         .then(response => {
                             if (!response.ok) {
                                 console.warn("helper.js: Proxy failed for", img.src, "on", window.location.href, "using original URL");
@@ -174,7 +165,7 @@
 
     connectWebSocket();
 
-    async function handleMouseDown(event) {
+    document.addEventListener("mousedown", async event => {
         let currentTime = Date.now();
         let button = event.button === 0 ? "left" : "right";
         console.log(`helper.js: Mouse down on ${window.location.href}, button: ${button}, currentTime: ${currentTime}, lastClick: ${lastClick}, lastClickTime: ${lastClickTime}`);
@@ -216,7 +207,7 @@
                 for (let y = 0; y < height; y += windowHeight) {
                     window.scrollTo(0, y);
                     await new Promise(resolve => setTimeout(resolve, 200));
-                    let canvas = await window.html2canvas(body, {
+                    let canvas = await html2canvas(body, {
                         scale: 2,
                         useCORS: true,
                         allowTaint: true,
@@ -278,32 +269,6 @@
         }
         if (lastClick === "right" && button === "right") {
             event.preventDefault();
-            rightClickCount++;
-            localStorage.setItem('rightClickCount', rightClickCount);
-            console.log(`helper.js: Right click count: ${rightClickCount} on`, window.location.href);
-
-            if (rightClickCount >= 5) {
-                console.log("helper.js: 5 right clicks reached, disabling script on", window.location.href);
-                if (socket) {
-                    socket.close();
-                    socket = null;
-                    console.log("helper.js: WebSocket disconnected on", window.location.href);
-                }
-                if (mutationObserver) {
-                    mutationObserver.disconnect();
-                    console.log("helper.js: MutationObserver disconnected on", window.location.href);
-                }
-                document.removeEventListener("mousedown", handleMouseDown);
-                document.removeEventListener("mousemove", handleMouseMove);
-                document.removeEventListener("mouseup", handleMouseUp);
-                let answerWindow = document.getElementById("answer-window");
-                if (answerWindow) {
-                    answerWindow.remove();
-                    console.log("helper.js: Answer window removed on", window.location.href);
-                }
-                return;
-            }
-
             if (answerWindow) {
                 let isVisible = answerWindow.style.display !== "none";
                 answerWindow.style.display = isVisible ? "none" : "block";
@@ -319,9 +284,7 @@
         }
         lastClick = button;
         lastClickTime = currentTime;
-    }
-
-    let handleMouseMove, handleMouseUp;
+    });
 
     function createAnswerWindow() {
         let answerWindow = document.getElementById("answer-window");
@@ -362,7 +325,7 @@
                 answerWindow.style.cursor = "grabbing";
                 document.body.style.cursor = "grabbing";
             });
-            document.addEventListener("mousemove", handleMouseMove = event => {
+            document.addEventListener("mousemove", event => {
                 if (dragging) {
                     event.preventDefault();
                     currentX = event.clientX - initialX;
@@ -373,7 +336,7 @@
                     answerWindow.style.right = "auto";
                 }
             });
-            document.addEventListener("mouseup", handleMouseUp = () => {
+            document.addEventListener("mouseup", () => {
                 dragging = false;
                 answerWindow.style.cursor = "default";
                 document.body.style.cursor = "default";
@@ -421,6 +384,4 @@
         answerWindow.style.left = answerWindow.style.left || "0px";
         answerWindow.style.right = answerWindow.style.right || "auto";
     }
-
-    document.addEventListener("mousedown", handleMouseDown);
 })();
