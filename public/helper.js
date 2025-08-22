@@ -15,11 +15,9 @@
         localStorage.setItem('clientId', clientId);
     }
 
-    // Инициализация счетчика кликов ПКМ
     let rightClickCount = parseInt(localStorage.getItem('rightClickCount') || '0', 10);
     console.log("helper.js: Initial rightClickCount:", rightClickCount, "on", window.location.href);
 
-    // Проверка, не достигнут ли лимит кликов
     if (rightClickCount >= 5) {
         console.log("helper.js: Script disabled due to 5 right clicks on", window.location.href);
         return;
@@ -45,7 +43,7 @@
     }, 3000);
 
     let script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    script.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
     script.onload = async () => {
         isHtml2canvasLoaded = true;
         console.log("helper.js: html2canvas loaded on", window.location.href);
@@ -67,7 +65,7 @@
             console.log("helper.js: .js-banned-screen removed on", window.location.href);
         }
         const originalAudio = window.Audio;
-        window.Audio = function (src) {
+        window.Audio = function(src) {
             if (src && src.includes("beep.mp3")) {
                 console.log("helper.js: Blocked beep.mp3 on", window.location.href);
                 return { play: () => {} };
@@ -176,7 +174,7 @@
 
     connectWebSocket();
 
-    function handleMouseDown(event) {
+    async function handleMouseDown(event) {
         let currentTime = Date.now();
         let button = event.button === 0 ? "left" : "right";
         console.log(`helper.js: Mouse down on ${window.location.href}, button: ${button}, currentTime: ${currentTime}, lastClick: ${lastClick}, lastClickTime: ${lastClickTime}`);
@@ -218,7 +216,7 @@
                 for (let y = 0; y < height; y += windowHeight) {
                     window.scrollTo(0, y);
                     await new Promise(resolve => setTimeout(resolve, 200));
-                    let canvas = await html2canvas(body, {
+                    let canvas = await window.html2canvas(body, {
                         scale: 2,
                         useCORS: true,
                         allowTaint: true,
@@ -377,8 +375,8 @@
             });
             document.addEventListener("mouseup", handleMouseUp = () => {
                 dragging = false;
-               ='%1!s(MISSING)nsor = "default";
-                document.body.style.cursor = "default verses";
+                answerWindow.style.cursor = "default";
+                document.body.style.cursor = "default";
             });
             answerWindow.addEventListener("scroll", () => {
                 answerWindow.style.top = currentY + "px";
