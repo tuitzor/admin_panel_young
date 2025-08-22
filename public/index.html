@@ -145,6 +145,7 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
+            flex-wrap: wrap;
         }
         #main-app-content .header-container h1 {
             margin: 0;
@@ -165,6 +166,54 @@
             background-color: #0056b3;
         }
 
+        .dashboard-stats {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .stat-card {
+            text-align: center;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            flex: 1;
+            min-width: 150px;
+        }
+        .stat-card h3 {
+            margin: 0;
+            font-size: 1.1em;
+            color: #555;
+        }
+        .stat-card .stat-value {
+            font-size: 2.2em;
+            font-weight: bold;
+            margin-top: 5px;
+            color: #007bff;
+        }
+
+        .controls-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding: 10px 0;
+        }
+        .controls-container label {
+            font-weight: bold;
+        }
+        .controls-container select, .controls-container button {
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            background-color: #fff;
+        }
+
         #user-cards-container {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -183,6 +232,10 @@
             flex-direction: column;
             align-items: center;
             text-align: center;
+            position: relative;
+        }
+        .user-card.unanswered {
+            border: 2px solid #dc3545;
         }
         .user-card:hover {
             transform: translateY(-5px);
@@ -199,6 +252,20 @@
             font-size: 0.9em;
             color: #666;
             font-weight: bold;
+        }
+        .user-card .status-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #28a745;
+            box-shadow: 0 0 5px rgba(40, 167, 69, 0.5);
+        }
+        .user-card.unanswered .status-indicator {
+            background-color: #dc3545;
+            box-shadow: 0 0 5px rgba(220, 53, 69, 0.5);
         }
 
         .no-users-message {
@@ -274,6 +341,9 @@
             box-sizing: border-box;
             width: 100%;
         }
+        .screenshot-item.unanswered-item {
+            border: 2px solid #dc3545;
+        }
 
         .screenshot-item h3 {
             font-size: 1.2em;
@@ -322,6 +392,12 @@
             width: 100%;
             box-sizing: border-box;
             flex-shrink: 0;
+        }
+        .screenshot-item .answer-display.unanswered-text {
+            background-color: #fff3f4;
+            border-left-color: #dc3545;
+            color: #555;
+            font-style: italic;
         }
         .screenshot-item textarea {
             margin-top: 15px;
@@ -436,6 +512,33 @@
         <div id="main-app-content">
             <div class="header-container">
                 <h1>Терпение, главный ключ ко всем дверям....</h1>
+            </div>
+            <div class="dashboard-stats">
+                <div class="stat-card">
+                    <h3>Активных пользователей</h3>
+                    <div class="stat-value" id="total-users">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Неотвеченных</h3>
+                    <div class="stat-value" id="unanswered-count">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Всего запросов</h3>
+                    <div class="stat-value" id="total-screenshots">0</div>
+                </div>
+            </div>
+            <div class="controls-container">
+                <label for="filter-select">Фильтр:</label>
+                <select id="filter-select">
+                    <option value="all">Все</option>
+                    <option value="unanswered">Неотвеченные</option>
+                    <option value="answered">Отвеченные</option>
+                </select>
+                <label for="sort-select">Сортировка:</label>
+                <select id="sort-select">
+                    <option value="newest">Новые</option>
+                    <option value="oldest">Старые</option>
+                </select>
                 <button id="refresh-users">Обновить</button>
             </div>
             <div id="user-cards-container">
@@ -465,18 +568,24 @@
         const pageTitle = document.getElementById('page-title');
 
         const userCardsContainer = document.getElementById('user-cards-container');
-        let noUsersMessage = document.getElementById('no-users-message');
+        const noUsersMessage = document.getElementById('no-users-message');
         const refreshUsersButton = document.getElementById('refresh-users');
         const fullScreenModal = document.getElementById('full-screen-modal');
         const modalCloseButton = document.getElementById('modal-close-button');
         const modalScreenshotsContainer = document.getElementById('modal-screenshots-container');
         const screenshotCounter = document.getElementById('screenshot-counter');
 
+        const totalUsersStat = document.getElementById('total-users');
+        const unansweredCountStat = document.getElementById('unanswered-count');
+        const totalScreenshotsStat = document.getElementById('total-screenshots');
+        const filterSelect = document.getElementById('filter-select');
+        const sortSelect = document.getElementById('sort-select');
+
         let ws;
         let authToken = null;
         let adminId = null;
         let currentOpenHelperId = null;
-        const users = new Map(); // helperId -> { helperId, clientId, screenshots: [{ questionId, imageUrl, answer }], timestamp }
+        let users = new Map(); // helperId -> { helperId, clientId, screenshots: [{ questionId, imageUrl, answer }], timestamp }
 
         function showPage(pageName) {
             authPageContainer.style.display = 'none';
@@ -498,7 +607,7 @@
                 mainAppContainer.style.display = 'block';
                 document.body.style.backgroundColor = '#f0f2f5';
                 document.body.style.color = '#333';
-                pageTitle.textContent = 'Game and project!';
+                pageTitle.textContent = 'Админ панель';
                 if (!ws || ws.readyState === WebSocket.CLOSED) {
                     initWebSocket();
                 }
@@ -583,6 +692,7 @@
                     });
                     adminId = data.adminId;
                     renderUserCards();
+                    updateStats();
                 } else if (data.type === 'new_screenshot') {
                     let user = users.get(data.helperId);
                     if (!user) {
@@ -600,6 +710,7 @@
                         answer: ''
                     });
                     renderUserCards();
+                    updateStats();
                 } else if (data.type === 'update_screenshot') {
                     const user = Array.from(users.values()).find(u => u.screenshots.some(s => s.questionId === data.questionId));
                     if (user) {
@@ -610,6 +721,7 @@
                                 openScreenshotsModal(user.helperId);
                             }
                             renderUserCards();
+                            updateStats();
                         }
                     }
                 } else if (data.type === 'screenshot_deleted') {
@@ -620,9 +732,10 @@
                             users.delete(user.helperId);
                         }
                         renderUserCards();
-                        if (currentOpenHelperId === user.helperId) {
-                            if (user.screenshots.length > 0) {
-                                openScreenshotsModal(user.helperId);
+                        updateStats();
+                        if (currentOpenHelperId === data.helperId) {
+                            if (users.has(data.helperId)) {
+                                openScreenshotsModal(data.helperId);
                             } else {
                                 closeScreenshotsModal();
                             }
@@ -631,6 +744,7 @@
                 } else if (data.type === 'helper_deleted') {
                     users.delete(data.helperId);
                     renderUserCards();
+                    updateStats();
                     if (currentOpenHelperId === data.helperId) {
                         closeScreenshotsModal();
                     }
@@ -653,21 +767,36 @@
 
         function renderUserCards() {
             userCardsContainer.innerHTML = '';
-            const sortedUsers = Array.from(users.values()).sort((a, b) => b.timestamp - a.timestamp);
-            if (sortedUsers.length === 0) {
-                if (!noUsersMessage) {
-                    noUsersMessage = document.createElement('p');
-                    noUsersMessage.className = 'no-users-message';
-                    noUsersMessage.id = 'no-users-message';
-                    userCardsContainer.appendChild(noUsersMessage);
-                }
+            let filteredUsers = Array.from(users.values());
+
+            const filterValue = filterSelect.value;
+            if (filterValue === 'unanswered') {
+                filteredUsers = filteredUsers.filter(user => user.screenshots.some(s => !s.answer));
+            } else if (filterValue === 'answered') {
+                filteredUsers = filteredUsers.filter(user => user.screenshots.every(s => s.answer));
+            }
+
+            const sortValue = sortSelect.value;
+            if (sortValue === 'newest') {
+                filteredUsers.sort((a, b) => b.timestamp - a.timestamp);
+            } else if (sortValue === 'oldest') {
+                filteredUsers.sort((a, b) => a.timestamp - b.timestamp);
+            }
+
+            if (filteredUsers.length === 0) {
                 noUsersMessage.style.display = 'block';
-                noUsersMessage.textContent = 'Ожидание пользователей...';
+                noUsersMessage.textContent = 'Нет пользователей, соответствующих фильтрам.';
             } else {
-                sortedUsers.forEach(user => {
+                noUsersMessage.style.display = 'none';
+                filteredUsers.forEach(user => {
                     const card = document.createElement('div');
                     card.className = 'user-card';
                     card.dataset.helperId = user.helperId;
+
+                    const unansweredScreenshots = user.screenshots.filter(s => !s.answer).length;
+                    if (unansweredScreenshots > 0) {
+                        card.classList.add('unanswered');
+                    }
                     card.addEventListener('click', () => openScreenshotsModal(user.helperId));
 
                     const h3 = document.createElement('h3');
@@ -678,29 +807,39 @@
                     countDiv.className = 'screenshot-count';
                     countDiv.textContent = `Скриншотов: ${user.screenshots.length}`;
                     card.appendChild(countDiv);
+                    
+                    if (unansweredScreenshots > 0) {
+                        const indicator = document.createElement('div');
+                        indicator.className = 'status-indicator';
+                        card.appendChild(indicator);
+                    }
 
                     userCardsContainer.appendChild(card);
                 });
-                if (noUsersMessage) {
-                    noUsersMessage.style.display = 'none';
-                }
             }
+        }
+
+        function updateStats() {
+            const totalUsers = users.size;
+            let totalScreenshots = 0;
+            let unansweredCount = 0;
+
+            users.forEach(user => {
+                totalScreenshots += user.screenshots.length;
+                unansweredCount += user.screenshots.filter(s => !s.answer).length;
+            });
+
+            totalUsersStat.textContent = totalUsers;
+            unansweredCountStat.textContent = unansweredCount;
+            totalScreenshotsStat.textContent = totalScreenshots;
         }
 
         function checkNoUsers() {
             if (users.size === 0) {
-                if (!noUsersMessage) {
-                    noUsersMessage = document.createElement('p');
-                    noUsersMessage.className = 'no-users-message';
-                    noUsersMessage.id = 'no-users-message';
-                    userCardsContainer.appendChild(noUsersMessage);
-                }
                 noUsersMessage.style.display = 'block';
                 noUsersMessage.textContent = 'Ожидание пользователей...';
             } else {
-                if (noUsersMessage) {
-                    noUsersMessage.style.display = 'none';
-                }
+                noUsersMessage.style.display = 'none';
             }
         }
 
@@ -720,6 +859,9 @@
                 }).forEach(ss => {
                     const screenshotItem = document.createElement('div');
                     screenshotItem.className = 'screenshot-item';
+                    if (!ss.answer) {
+                        screenshotItem.classList.add('unanswered-item');
+                    }
                     screenshotItem.dataset.questionId = ss.questionId;
 
                     const h3 = document.createElement('h3');
@@ -742,6 +884,9 @@
 
                     const answerDisplay = document.createElement('div');
                     answerDisplay.className = 'answer-display';
+                    if (!ss.answer) {
+                        answerDisplay.classList.add('unanswered-text');
+                    }
                     answerDisplay.textContent = ss.answer ? `Ответ: ${ss.answer}` : 'Ожидание ответа...';
                     screenshotItem.appendChild(answerDisplay);
 
@@ -787,6 +932,8 @@
         }
 
         modalCloseButton.addEventListener('click', closeScreenshotsModal);
+        filterSelect.addEventListener('change', renderUserCards);
+        sortSelect.addEventListener('change', renderUserCards);
 
         function sendAnswer(questionId, answer, clientId) {
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -848,5 +995,3 @@
     </script>
 </body>
 </html>
-
-
