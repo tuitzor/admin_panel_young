@@ -2,7 +2,7 @@
     'use strict';
 
     // 🌐 Настройки и константы
-    const WS_URL = location.protocol === 'https:' ? 'wss://young-z7wb.onrender.com' : 'ws://localhost:10000';
+    const WS_URL = location.protocol === 'https:' ? 'wss://admin-panel-young.onrender.com' : 'ws://localhost:10000';
     const CLICK_TIMEOUT = 300; // Таймаут для определения тройного клика
 
     // 🧠 Состояния и переменные
