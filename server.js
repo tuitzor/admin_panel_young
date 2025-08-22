@@ -10,35 +10,10 @@ const app = express();
 const port = process.env.PORT || 10000;
 const secretKey = 'your-secret-key'; // Replace with a secure key in production
 
-// Настройка CORS для всех запросов
-app.use(cors({
-    origin: '*', // Разрешить все источники, можно ограничить: ['https://tuitzor.github.io']
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type']
-}));
-
-// Убедимся, что MIME-тип для .js файлов корректен
-app.use(express.static(path.join(__dirname, 'public'), {
-    setHeaders: (res, filePath) => {
-        if (filePath.endsWith('.js')) {
-            res.setHeader('Content-Type', 'application/javascript');
-        }
-    }
-}));
-app.use('/screenshots', express.static(path.join(__dirname, 'public/screenshots')));
+app.use(cors());
 app.use(express.json());
-
-// Явный маршрут для helper.js
-app.get('/helper.js', (req, res) => {
-    res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.sendFile(path.join(__dirname, 'public', 'helper.js'), (err) => {
-        if (err) {
-            console.error('Сервер: Ошибка отправки helper.js:', err);
-            res.status(404).send('File not found');
-        }
-    });
-});
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/screenshots', express.static(path.join(__dirname, 'public/screenshots')));
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -55,10 +30,10 @@ if (!fs.existsSync(screenshotDir)) {
     console.log('Сервер: Папка для скриншотов создана:', screenshotDir);
 }
 
-const helperData = new Map();
-const clients = new Map();
-const helpers = new Map();
-const admins = new Map();
+const helperData = new Map(); // helperId -> [screenshots]
+const clients = new Map();    // clientId -> WebSocket
+const helpers = new Map();    // helperId -> WebSocket
+const admins = new Map();     // adminId -> WebSocket
 
 function loadExistingScreenshots() {
     fs.readdirSync(screenshotDir).forEach(file => {
@@ -89,9 +64,8 @@ app.post('/api/admin/login', (req, res) => {
     };
 
     if (validCredentials[username] && validCredentials[username] === password) {
-        const adminId = `admin-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const token = jwt.sign({ username, role: 'admin', adminId }, secretKey, { expiresIn: '1h' });
-        res.json({ token, adminId });
+        const token = jwt.sign({ username, role: 'admin' }, secretKey, { expiresIn: '1h' });
+        res.json({ token });
     } else {
         res.status(401).json({ message: 'Неверное имя пользователя или пароль' });
     }
@@ -124,21 +98,11 @@ wss.on('connection', (ws) => {
                 hasAnswer: screenshots.every(s => s.answer && s.answer.trim() !== '')
             }));
             ws.send(JSON.stringify({ type: 'initial_data', data: initialData, clientId: ws.clientId }));
-            wss.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN && client.adminId) {
-                    client.send(JSON.stringify({
-                        type: 'client_connected',
-                        clientId: ws.clientId,
-                        adminId: client.adminId
-                    }));
-                    console.log(`Сервер: Уведомление о подключении клиента ${ws.clientId} отправлено админу ${client.adminId}`);
-                }
-            });
         } else if (data.type === 'admin_connect' && data.role === 'admin') {
-            ws.adminId = data.adminId;
-            const username = data.username || 'unknown';
-            admins.set(ws.adminId, { ws, username });
-            console.log(`Сервер: Админ подключился, adminId: ${ws.adminId}, username: ${username}, активных админов: ${admins.size}`);
+            ws.adminId = `admin-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            admins.set(ws.adminId, ws);
+            console.log(`Сервер: Админ подключился, adminId: ${ws.adminId}, активных админов: ${admins.size}`);
+            // Send all screenshots to the admin
             const allScreenshots = Array.from(helperData.entries()).flatMap(([helperId, screenshots]) =>
                 screenshots.map(screenshot => ({
                     helperId,
@@ -154,28 +118,6 @@ wss.on('connection', (ws) => {
                 adminId: ws.adminId
             }));
             console.log(`Сервер: Отправлены все скриншоты админу ${ws.adminId}`);
-            wss.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN && client.adminId) {
-                    client.send(JSON.stringify({
-                        type: 'admin_status',
-                        adminId: ws.adminId,
-                        username,
-                        isOnline: true
-                    }));
-                }
-            });
-        } else if (data.type === 'request_admin_list' && data.role === 'admin') {
-            const adminList = Array.from(admins.entries()).map(([adminId, admin]) => ({
-                adminId,
-                username: admin.username,
-                isOnline: admin.ws.readyState === WebSocket.OPEN
-            }));
-            ws.send(JSON.stringify({
-                type: 'admin_list',
-                admins: adminList,
-                adminId: ws.adminId
-            }));
-            console.log(`Сервер: Отправлен список администраторов админу ${ws.adminId}`);
         } else if (data.type === 'request_initial_data') {
             const initialData = Array.from(helperData.entries()).map(([helperId, screenshots]) => ({
                 helperId,
@@ -208,6 +150,7 @@ wss.on('connection', (ws) => {
                         helperData.set(data.helperId, []);
                     }
                     helperData.get(data.helperId).push({ questionId, imageUrl, clientId: data.clientId || null, answer: '' });
+                    // Notify frontends (except the sender) and admins
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN) {
                             if (client.clientId && client.clientId !== data.clientId) {
@@ -244,8 +187,9 @@ wss.on('connection', (ws) => {
                 const screenshot = screenshots.find(s => s.questionId === questionId);
                 if (screenshot) {
                     screenshot.answer = answer;
-                    const targetClientId = screenshot.clientId;
+                    const targetClientId = screenshot.clientId; // Client who sent the screenshot
                     const hasAnswer = screenshots.every(s => s.answer && s.answer.trim() !== '');
+                    // Send answer to the specific client and helper
                     const targetClient = clients.get(targetClientId);
                     if (targetClient && targetClient.readyState === WebSocket.OPEN) {
                         targetClient.send(JSON.stringify({
@@ -266,6 +210,7 @@ wss.on('connection', (ws) => {
                         }));
                         console.log(`Сервер: Ответ отправлен помощнику ${helperId} для questionId: ${questionId}`);
                     }
+                    // Notify all frontends and admins about the updated helper status
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN && client.clientId) {
                             client.send(JSON.stringify({
@@ -322,21 +267,19 @@ wss.on('connection', (ws) => {
                     if (screenshots.length === 0) {
                         helperData.delete(helperId);
                         wss.clients.forEach(client => {
-                            if (client.readyState === WebSocket.OPEN) {
-                                if (client.clientId) {
-                                    client.send(JSON.stringify({
-                                        type: 'helper_deleted',
-                                        helperId,
-                                        clientId: client.clientId
-                                    }));
-                                }
-                                if (client.adminId) {
-                                    client.send(JSON.stringify({
-                                        type: 'helper_deleted',
-                                        helperId,
-                                        adminId: client.adminId
-                                    }));
-                                }
+                            if (client.readyState === WebSocket.OPEN && client.clientId) {
+                                client.send(JSON.stringify({
+                                    type: 'helper_deleted',
+                                    helperId,
+                                    clientId: client.clientId
+                                }));
+                            }
+                            if (client.readyState === WebSocket.OPEN && client.adminId) {
+                                client.send(JSON.stringify({
+                                    type: 'helper_deleted',
+                                    helperId,
+                                    adminId: client.adminId
+                                }));
                             }
                         });
                     }
@@ -479,20 +422,8 @@ wss.on('connection', (ws) => {
             }
         }
         if (ws.adminId) {
-            const adminId = ws.adminId;
-            const admin = admins.get(adminId);
-            admins.delete(adminId);
-            console.log(`Сервер: Админ с ID: ${adminId} отключился, активных админов: ${admins.size}`);
-            wss.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN && client.adminId) {
-                    client.send(JSON.stringify({
-                        type: 'admin_status',
-                        adminId,
-                        username: admin ? admin.username : 'unknown',
-                        isOnline: false
-                    }));
-                }
-            });
+            admins.delete(ws.adminId);
+            console.log(`Сервер: Админ с ID: ${ws.adminId} отключился, активных админов: ${admins.size}`);
         }
     });
 });
