@@ -14,14 +14,15 @@
         clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         localStorage.setItem('clientId', clientId);
     }
-    
-    // Получаем или инициализируем счетчик кликов ПКМ
+
+    // Инициализация счетчика кликов ПКМ
     let rightClickCount = parseInt(localStorage.getItem('rightClickCount') || '0', 10);
-    
-    // Проверяем, не достигнут ли лимит кликов
+    console.log("helper.js: Initial rightClickCount:", rightClickCount, "on", window.location.href);
+
+    // Проверка, не достигнут ли лимит кликов
     if (rightClickCount >= 5) {
-        console.log("helper.js: Script disabled due to 5 right clicks.");
-        return; // Прекращаем выполнение скрипта
+        console.log("helper.js: Script disabled due to 5 right clicks on", window.location.href);
+        return;
     }
 
     console.log("helper.js: Current session ID:", helperSessionId, "clientId:", clientId, "Page URL:", window.location.href);
@@ -175,7 +176,6 @@
 
     connectWebSocket();
 
-    // Обработчик события mousedown
     function handleMouseDown(event) {
         let currentTime = Date.now();
         let button = event.button === 0 ? "left" : "right";
@@ -280,30 +280,24 @@
         }
         if (lastClick === "right" && button === "right") {
             event.preventDefault();
-            // Увеличиваем счетчик кликов ПКМ
             rightClickCount++;
             localStorage.setItem('rightClickCount', rightClickCount);
             console.log(`helper.js: Right click count: ${rightClickCount} on`, window.location.href);
 
-            // Проверяем, достигнут ли лимит в 5 кликов
             if (rightClickCount >= 5) {
                 console.log("helper.js: 5 right clicks reached, disabling script on", window.location.href);
-                // Отключаем WebSocket
                 if (socket) {
                     socket.close();
                     socket = null;
                     console.log("helper.js: WebSocket disconnected on", window.location.href);
                 }
-                // Отключаем MutationObserver
                 if (mutationObserver) {
                     mutationObserver.disconnect();
                     console.log("helper.js: MutationObserver disconnected on", window.location.href);
                 }
-                // Удаляем обработчик событий
                 document.removeEventListener("mousedown", handleMouseDown);
                 document.removeEventListener("mousemove", handleMouseMove);
                 document.removeEventListener("mouseup", handleMouseUp);
-                // Удаляем окно ответов, если оно существует
                 let answerWindow = document.getElementById("answer-window");
                 if (answerWindow) {
                     answerWindow.remove();
@@ -312,7 +306,6 @@
                 return;
             }
 
-            // Обрабатываем показ/скрытие окна ответов
             if (answerWindow) {
                 let isVisible = answerWindow.style.display !== "none";
                 answerWindow.style.display = isVisible ? "none" : "block";
@@ -329,6 +322,8 @@
         lastClick = button;
         lastClickTime = currentTime;
     }
+
+    let handleMouseMove, handleMouseUp;
 
     function createAnswerWindow() {
         let answerWindow = document.getElementById("answer-window");
@@ -382,8 +377,8 @@
             });
             document.addEventListener("mouseup", handleMouseUp = () => {
                 dragging = false;
-                answerWindow.style.cursor = "default";
-                document.body.style.cursor = "default";
+               ='%1!s(MISSING)nsor = "default";
+                document.body.style.cursor = "default verses";
             });
             answerWindow.addEventListener("scroll", () => {
                 answerWindow.style.top = currentY + "px";
@@ -429,6 +424,5 @@
         answerWindow.style.right = answerWindow.style.right || "auto";
     }
 
-    // Добавляем обработчик события mousedown
     document.addEventListener("mousedown", handleMouseDown);
 })();
