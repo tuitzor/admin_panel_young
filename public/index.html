@@ -286,7 +286,7 @@
             background-color: rgba(0, 0, 0, 0.9);
             z-index: 1000;
             flex-direction: column;
-            padding: 20px;
+            padding: 0; /* Изменение: Убрали padding для использования всей ширины */
             box-sizing: border-box;
             overflow-y: auto;
         }
@@ -322,7 +322,7 @@
             flex-direction: column;
             gap: 20px;
             width: 100%;
-            max-width: 1000px;
+            max-width: 1400px; /* Изменение: Увеличили максимальную ширину */
             margin: 0 auto;
             padding-bottom: 20px;
             box-sizing: border-box;
@@ -366,7 +366,7 @@
 
         .screenshot-item img {
             max-width: 100%;
-            max-height: 500px;
+            max-height: 700px; /* Изменение: Увеличили максимальную высоту */
             width: auto;
             height: auto;
             display: block;
@@ -473,7 +473,7 @@
                 gap: 15px;
             }
             .screenshot-item img {
-                max-height: 300px;
+                max-height: 400px; /* Изменение: Увеличили максимальную высоту для мобильных устройств */
             }
             .screenshot-item .action-buttons button {
                 padding: 10px;
@@ -585,7 +585,7 @@
         let authToken = null;
         let adminId = null;
         let currentOpenHelperId = null;
-        let users = new Map(); // helperId -> { helperId, clientId, screenshots: [{ questionId, imageUrl, answer }], timestamp }
+        let users = new Map();
 
         function showPage(pageName) {
             authPageContainer.style.display = 'none';
@@ -807,11 +807,12 @@
                     countDiv.className = 'screenshot-count';
                     countDiv.textContent = `Скриншотов: ${user.screenshots.length}`;
                     card.appendChild(countDiv);
-                    
+
                     if (unansweredScreenshots > 0) {
-                        const indicator = document.createElement('div');
-                        indicator.className = 'status-indicator';
-                        card.appendChild(indicator);
+                        const statusIndicator = document.createElement('div');
+                        statusIndicator.className = 'status-indicator';
+                        statusIndicator.title = 'Есть неотвеченные запросы';
+                        card.appendChild(statusIndicator);
                     }
 
                     userCardsContainer.appendChild(card);
@@ -820,24 +821,33 @@
         }
 
         function updateStats() {
-            const totalUsers = users.size;
-            let totalScreenshots = 0;
-            let unansweredCount = 0;
+            const totalUnanswered = Array.from(users.values()).reduce((count, user) => {
+                return count + user.screenshots.filter(s => !s.answer).length;
+            }, 0);
+            const totalScreenshots = Array.from(users.values()).reduce((count, user) => {
+                return count + user.screenshots.length;
+            }, 0);
 
-            users.forEach(user => {
-                totalScreenshots += user.screenshots.length;
-                unansweredCount += user.screenshots.filter(s => !s.answer).length;
-            });
-
-            totalUsersStat.textContent = totalUsers;
-            unansweredCountStat.textContent = unansweredCount;
+            totalUsersStat.textContent = users.size;
+            unansweredCountStat.textContent = totalUnanswered;
             totalScreenshotsStat.textContent = totalScreenshots;
+            checkNoUsers();
         }
 
         function checkNoUsers() {
+            const filterValue = filterSelect.value;
+            const hasUsers = Array.from(users.values()).some(user => {
+                if (filterValue === 'all') return true;
+                if (filterValue === 'unanswered') return user.screenshots.some(s => !s.answer);
+                if (filterValue === 'answered') return user.screenshots.every(s => s.answer);
+            });
+
             if (users.size === 0) {
-                noUsersMessage.style.display = 'block';
                 noUsersMessage.textContent = 'Ожидание пользователей...';
+                noUsersMessage.style.display = 'block';
+            } else if (!hasUsers) {
+                noUsersMessage.textContent = 'Нет пользователей, соответствующих фильтрам.';
+                noUsersMessage.style.display = 'block';
             } else {
                 noUsersMessage.style.display = 'none';
             }
@@ -846,152 +856,158 @@
         function openScreenshotsModal(helperId) {
             currentOpenHelperId = helperId;
             const user = users.get(helperId);
-            modalScreenshotsContainer.innerHTML = '';
-
-            if (!user || user.screenshots.length === 0) {
-                modalScreenshotsContainer.innerHTML = '<p class="no-screenshots-for-user">Для этого пользователя пока нет скриншотов.</p>';
-                screenshotCounter.textContent = '';
-            } else {
-                user.screenshots.sort((a, b) => {
-                    const timeA = parseInt(a.questionId.split('-')[1]) || 0;
-                    const timeB = parseInt(b.questionId.split('-')[1]) || 0;
-                    return timeB - timeA;
-                }).forEach(ss => {
-                    const screenshotItem = document.createElement('div');
-                    screenshotItem.className = 'screenshot-item';
-                    if (!ss.answer) {
-                        screenshotItem.classList.add('unanswered-item');
-                    }
-                    screenshotItem.dataset.questionId = ss.questionId;
-
-                    const h3 = document.createElement('h3');
-                    const filename = ss.questionId.split('/').pop();
-                    const parts = filename.split('-');
-                    const screenshotNumber = parts[parts.length - 1].replace('.png', '');
-                    h3.textContent = `Скриншот: ${screenshotNumber} (ClientId: ${user.clientId})`;
-                    screenshotItem.appendChild(h3);
-
-                    const imageWrapper = document.createElement('div');
-                    imageWrapper.className = 'image-wrapper';
-                    screenshotItem.appendChild(imageWrapper);
-
-                    const img = document.createElement('img');
-                    img.src = ss.imageUrl;
-                    img.alt = `Скриншот ${ss.questionId}`;
-                    img.onerror = () => console.error(`Admin: Ошибка загрузки изображения: ${ss.imageUrl}`);
-                    img.onload = () => console.log(`Admin: Изображение загружено: ${ss.imageUrl}`);
-                    imageWrapper.appendChild(img);
-
-                    const answerDisplay = document.createElement('div');
-                    answerDisplay.className = 'answer-display';
-                    if (!ss.answer) {
-                        answerDisplay.classList.add('unanswered-text');
-                    }
-                    answerDisplay.textContent = ss.answer ? `Ответ: ${ss.answer}` : 'Ожидание ответа...';
-                    screenshotItem.appendChild(answerDisplay);
-
-                    const textarea = document.createElement('textarea');
-                    textarea.placeholder = 'Введите ответ...';
-                    textarea.value = ss.answer || '';
-                    screenshotItem.appendChild(textarea);
-
-                    const actionButtonsDiv = document.createElement('div');
-                    actionButtonsDiv.className = 'action-buttons';
-                    screenshotItem.appendChild(actionButtonsDiv);
-
-                    const submitButton = document.createElement('button');
-                    submitButton.textContent = 'Отправить ответ';
-                    submitButton.className = 'submit-button';
-                    submitButton.onclick = () => sendAnswer(ss.questionId, textarea.value, user.clientId);
-                    actionButtonsDiv.appendChild(submitButton);
-
-                    const deleteButton = document.createElement('button');
-                    deleteButton.textContent = 'Удалить';
-                    deleteButton.className = 'delete-button';
-                    deleteButton.onclick = () => deleteScreenshot(ss.questionId);
-                    actionButtonsDiv.appendChild(deleteButton);
-
-                    const resetButton = document.createElement('button');
-                    resetButton.textContent = 'Сбросить ответ';
-                    resetButton.className = 'reset-button';
-                    resetButton.onclick = () => resetAnswer(ss.questionId, textarea, user.clientId);
-                    actionButtonsDiv.appendChild(resetButton);
-
-                    modalScreenshotsContainer.appendChild(screenshotItem);
-                });
-
-                screenshotCounter.textContent = `Скриншотов: ${user.screenshots.length}`;
+            if (!user) {
+                console.error('Admin: Пользователь не найден:', helperId);
+                return;
             }
+
+            modalScreenshotsContainer.innerHTML = '';
             fullScreenModal.style.display = 'flex';
+
+            user.screenshots.forEach(screenshot => {
+                const item = document.createElement('div');
+                item.className = 'screenshot-item';
+                item.dataset.questionId = screenshot.questionId;
+
+                if (!screenshot.answer) {
+                    item.classList.add('unanswered-item');
+                }
+
+                const title = document.createElement('h3');
+                title.textContent = `Запрос от ${user.helperId}`;
+                item.appendChild(title);
+
+                const imageWrapper = document.createElement('div');
+                imageWrapper.className = 'image-wrapper';
+                const img = document.createElement('img');
+                img.src = screenshot.imageUrl;
+                img.alt = 'Скриншот запроса';
+                imageWrapper.appendChild(img);
+                item.appendChild(imageWrapper);
+
+                const answerDisplay = document.createElement('div');
+                answerDisplay.className = 'answer-display';
+                if (screenshot.answer) {
+                    answerDisplay.textContent = screenshot.answer;
+                } else {
+                    answerDisplay.textContent = 'Ответ пока не предоставлен.';
+                    answerDisplay.classList.add('unanswered-text');
+                }
+                item.appendChild(answerDisplay);
+
+                const textarea = document.createElement('textarea');
+                textarea.placeholder = 'Напишите ваш ответ...';
+                item.appendChild(textarea);
+
+                const buttonsDiv = document.createElement('div');
+                buttonsDiv.className = 'action-buttons';
+                const submitButton = document.createElement('button');
+                submitButton.textContent = 'Ответить';
+                submitButton.className = 'submit-button';
+                submitButton.addEventListener('click', () => submitAnswer(screenshot.questionId, textarea.value));
+                buttonsDiv.appendChild(submitButton);
+
+                const deleteButton = document.createElement('button');
+                deleteButton.textContent = 'Удалить';
+                deleteButton.className = 'delete-button';
+                deleteButton.addEventListener('click', () => deleteScreenshot(screenshot.questionId));
+                buttonsDiv.appendChild(deleteButton);
+                
+                const resetButton = document.createElement('button');
+                resetButton.textContent = 'Сбросить ответ';
+                resetButton.className = 'reset-button';
+                resetButton.addEventListener('click', () => resetAnswer(screenshot.questionId));
+                buttonsDiv.appendChild(resetButton);
+
+                item.appendChild(buttonsDiv);
+                modalScreenshotsContainer.appendChild(item);
+            });
+
+            if (user.screenshots.length === 0) {
+                const noScreenshotsMessage = document.createElement('p');
+                noScreenshotsMessage.className = 'no-screenshots-for-user';
+                noScreenshotsMessage.textContent = 'У этого пользователя нет скриншотов.';
+                modalScreenshotsContainer.appendChild(noScreenshotsMessage);
+            }
+            
+            updateScreenshotCounter(user.screenshots.length);
         }
 
         function closeScreenshotsModal() {
             fullScreenModal.style.display = 'none';
             currentOpenHelperId = null;
-            modalScreenshotsContainer.innerHTML = '';
         }
 
         modalCloseButton.addEventListener('click', closeScreenshotsModal);
-        filterSelect.addEventListener('change', renderUserCards);
-        sortSelect.addEventListener('change', renderUserCards);
 
-        function sendAnswer(questionId, answer, clientId) {
+        function submitAnswer(questionId, answer) {
+            if (!answer.trim()) {
+                alert('Ответ не может быть пустым.');
+                return;
+            }
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
-                    type: 'submit_answer',
-                    questionId,
-                    answer,
-                    adminId,
-                    clientId
+                    type: 'answer_screenshot',
+                    questionId: questionId,
+                    answer: answer,
+                    token: authToken
                 }));
-                console.log(`Admin: Отправлен ответ для questionId: ${questionId}, clientId: ${clientId}, adminId: ${adminId}`);
             } else {
-                console.error('Admin: WebSocket не подключен. Невозможно отправить ответ.');
-                showPage('error');
+                console.error('Admin: WebSocket не подключен. Ответ не отправлен.');
+                alert('Не удалось отправить ответ. WebSocket не подключен.');
             }
         }
 
         function deleteScreenshot(questionId) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                if (confirm('Вы уверены, что хотите удалить этот скриншот? Это действие безвозвратно удалит его с сервера!')) {
+            if (confirm('Вы уверены, что хотите удалить этот скриншот?')) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         type: 'delete_screenshot',
-                        questionId,
-                        adminId
+                        questionId: questionId,
+                        token: authToken
                     }));
-                    console.log(`Admin: Отправлен запрос на удаление скриншота ${questionId}, adminId: ${adminId}`);
+                } else {
+                    console.error('Admin: WebSocket не подключен. Скриншот не удален.');
+                    alert('Не удалось удалить скриншот. WebSocket не подключен.');
                 }
-            } else {
-                console.error('Admin: WebSocket не подключен. Невозможно отправить запрос на удаление.');
-                showPage('error');
+            }
+        }
+        
+        function resetAnswer(questionId) {
+            if (confirm('Вы уверены, что хотите сбросить ответ для этого скриншота?')) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'answer_screenshot',
+                        questionId: questionId,
+                        answer: '',
+                        token: authToken
+                    }));
+                } else {
+                    console.error('Admin: WebSocket не подключен. Ответ не сброшен.');
+                    alert('Не удалось сбросить ответ. WebSocket не подключен.');
+                }
             }
         }
 
-        function resetAnswer(questionId, textarea, clientId) {
-            textarea.value = '';
-            sendAnswer(questionId, '', clientId);
-            console.log(`Admin: Ответ для ${questionId} сброшен, clientId: ${clientId}, adminId: ${adminId}`);
+        function updateScreenshotCounter(count) {
+            screenshotCounter.textContent = `Всего скриншотов: ${count}`;
         }
 
-        function refreshUsers() {
+        refreshUsersButton.addEventListener('click', () => {
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'request_all_screenshots',
-                    role: 'admin',
-                    adminId
-                }));
-                console.log(`Admin: Запрошены все скриншоты, adminId: ${adminId}`);
+                ws.send(JSON.stringify({ type: 'get_all_screenshots', token: authToken }));
             } else {
-                console.error('Admin: WebSocket не подключен. Невозможно запросить скриншоты.');
-                showPage('error');
+                console.error('Admin: WebSocket не подключен. Не удалось обновить данные.');
             }
-        }
-
-        refreshUsersButton.addEventListener('click', refreshUsers);
-
-        document.addEventListener('DOMContentLoaded', () => {
-            showPage('auth');
         });
+
+        filterSelect.addEventListener('change', renderUserCards);
+        sortSelect.addEventListener('change', renderUserCards);
+
+        // Инициализация при загрузке страницы
+        window.onload = () => {
+            showPage('auth');
+        };
     </script>
 </body>
 </html>
