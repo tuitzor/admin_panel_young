@@ -14,14 +14,11 @@ SURNAME, NAME, PATRONYMIC, PASSPORT, SUBJECT, SESSION_TIME, PRIVACY = range(7)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('bot.log')
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
-# Ваш токен (можно напрямую или через переменную окружения)
+# Ваш токен
 TELEGRAM_TOKEN = "8007672980:AAGPSk8oTcjHt5tplFuyd90qkGRTrMAC1Hc"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -43,7 +40,7 @@ async def name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def patronymic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['patronymic'] = update.message.text
-    await update.message.reply_text("✅ Отчество принято!\n\nВведите паспортные данные (серия и номер):")
+    await update.message.reply_text("✅ Отчество принято!\n\nВведите паспортные данные:")
     return PASSPORT
 
 async def passport(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -55,8 +52,8 @@ async def subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['subject'] = update.message.text
     await update.message.reply_text(
         "✅ Предмет принят!\n\n"
-        "Введите дату и время сессии в формате:\n"
-        "ДД.ММ.ГГГГ ЧЧ:ММ\n\n"
+        "Введите дату и время сессии:\n"
+        "Формат: ДД.ММ.ГГГГ ЧЧ:ММ\n"
         "Пример: 25.12.2024 14:30"
     )
     return SESSION_TIME
@@ -69,10 +66,10 @@ async def session_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     
     await update.message.reply_text(
         "📋 Политика конфиденциальности:\n\n"
-        "• Мы собираем только необходимые данные для организации учебного процесса\n"
-        "• Ваши данные защищены и не передаются третьим лицам\n"
-        "• Вы можете запросить удаление ваших данных в любое время\n\n"
-        "Для продолжения необходимо согласие с политикой конфиденциальности:",
+        "• Ваши данные защищены\n"
+        "• Используются только для организации учебы\n"
+        "• Не передаются третьим лицам\n\n"
+        "Согласны с политикой конфиденциальности?",
         reply_markup=reply_markup
     )
     return PRIVACY
@@ -82,7 +79,7 @@ async def privacy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_data = context.user_data
         
         response_text = f"""
-🎉 Заявка успешно оформлена!
+🎉 Заявка оформлена!
 
 📋 Ваши данные:
 ├ Фамилия: {user_data['surname']}
@@ -90,45 +87,37 @@ async def privacy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 ├ Отчество: {user_data['patronymic']}
 ├ Паспорт: {user_data['passport']}
 ├ Предмет: {user_data['subject']}
-└ Время сессии: {user_data['session_time']}
+└ Время: {user_data['session_time']}
 
-✅ Вы будете уведомлены о подтверждении записи.
-Спасибо за выбор нашей системы! 📚
+✅ Запись подтверждена!
+Спасибо! 📚
         """
         
         await update.message.reply_text(response_text, reply_markup=ReplyKeyboardRemove())
-        
         logger.info(f"Новая запись: {user_data}")
         context.user_data.clear()
         return ConversationHandler.END
     else:
         await update.message.reply_text(
-            "❌ Для записи на сессию необходимо согласие с политикой конфиденциальности.\n\n"
-            "Если у вас есть вопросы, обратитесь к администратору.",
+            "❌ Для записи необходимо согласие с политикой конфиденциальности.",
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "❌ Запись отменена.\n\n"
-        "Если хотите начать заново, отправьте /start",
+        "❌ Запись отменена.\n\n/start - начать заново",
         reply_markup=ReplyKeyboardRemove()
     )
     context.user_data.clear()
     return ConversationHandler.END
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error(f"Ошибка при обработке сообщения: {context.error}")
-
-def start_bot():
-    """Функция для запуска бота"""
+def main():
+    """Основная функция запуска бота"""
     try:
-        # Используем токен напрямую
-        token = TELEGRAM_TOKEN
-        logger.info(f"🚀 Запуск бота с токеном: {token[:10]}...")
+        print("🚀 Запуск Telegram бота...")
         
-        application = Application.builder().token(token).build()
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
 
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler('start', start)],
@@ -145,14 +134,13 @@ def start_bot():
         )
 
         application.add_handler(conv_handler)
-        application.add_error_handler(error_handler)
         
-        logger.info("✅ Бот запущен и готов к работе!")
+        print("✅ Бот запущен! Ожидание сообщений...")
         application.run_polling()
         
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка при запуске бота: {e}")
-        raise
+        print(f"❌ Ошибка запуска бота: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
-    start_bot()
+    main()
