@@ -93,7 +93,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def main() -> None:
     # Создаем Application
-    application = Application.builder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
+    application = Application.builder().token(os.getenv('8007672980:AAGPSk8oTcjHt5tplFuyd90qkGRTrMAC1Hc')).build()
 
     # Создаем ConversationHandler
     conv_handler = ConversationHandler(
@@ -116,4 +116,5 @@ def main() -> None:
     application.run_polling()
 
 if __name__ == '__main__':
+
     main()
